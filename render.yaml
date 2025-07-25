@@ -9,7 +9,7 @@ services:
 
   # ─────────── BACKEND FLASK ───────────
   - type: web
-    name: leo-medico
+    name: leo-coaching-backend
     env: python
     region: oregon
     branch: main
@@ -28,7 +28,7 @@ services:
       - key: AWS_SECRET_ACCESS_KEY
         sync: false
       - key: AWS_S3_BUCKET_NAME
-        value: leotrainer2
+        value: leocoach
       - key: AWS_S3_REGION_NAME
         value: us-east-1
       - key: REDIS_URL
@@ -39,7 +39,7 @@ services:
 
     # ─────────── CELERY WORKER (Docker) ───────────
   - type: worker
-    name: leo-medico-worker
+    name: leo-coaching-worker
     env: docker
     region: oregon
     branch: main
@@ -71,7 +71,7 @@ services:
       - key: AWS_SECRET_ACCESS_KEY
         sync: false
       - key: AWS_S3_BUCKET_NAME
-        value: leotrainer2
+        value: leocoach
       - key: AWS_S3_REGION_NAME
         value: us-east-1
       - key: REDIS_URL

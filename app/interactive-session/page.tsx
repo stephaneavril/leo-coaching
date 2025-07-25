@@ -33,11 +33,11 @@ import { LoaderCircle } from 'lucide-react';
 // ───────────────────────────────────────────────────────────────
 const DEFAULT_CONFIG: StartAvatarRequest = {
   quality: AvatarQuality.Low,
-  avatarName: 'Ann_Doctor_Standing2_public',
-  knowledgeId: '13f254b102cf436d8c07b9fb617dbadf',
+  avatarName: 'Pedro_CasualLook_public',
+  knowledgeId: 'bca7f7c812cf49caabe462699a579b44',
   language: 'es',
   voice: {
-    voiceId: '8124d9bfe389414f8f660d82fb9ddde8',
+    voiceId: '92c8bd8d48f5467ab8a65f5db5d769f6',
     model: ElevenLabsModel.eleven_multilingual_v2,
     rate: 1.15,
     emotion: VoiceEmotion.FRIENDLY,
