@@ -312,16 +312,16 @@ html,
   <ol style={{paddingLeft: '20px', lineHeight: '1.6'}}>
     <li>Elige el escenario de entrenamiento que necesitas.</li>
     <li>Activa cámara y micrófono; verifica que todo funcione.</li>
-    <li>Haz clic en <strong>Iniciar Chat de Voz</strong> y saluda al avatar con "Buenos días Doctora".</li>
-    <li>Plantea tu objetivo: diagnóstico, beneficio o cierre.</li>
-    <li>Aplica el modelo Da Vinci y escucha las objeciones.</li>
+    <li>Haz clic en <strong>Iniciar Chat de Voz</strong> y saluda al avatar con "Buenos días Jorge".</li>
+    <li>El avatar te plantea el escenario que debes ir guiando</li>
+    <li>Recuerda que lo coaches y es una conversación dificil</li>
     <li>Dispones de 8 minutos por sesion y 30 minutos en el mes.</li>
     <li>Cuando terminas tu entrevista desconectate. Las personas de Capacitación revisarán con el apoyo de Inteligencia artificial y ofrecerán feedcback. Puede demorar algunas horas. Revisa tu análisis y repite la sesión enfocándote en un punto a mejorar.</li>
   </ol>
 </section>
           <div className="card-grid">
             <div className="card">
-              <h3>Entrevista con Médico</h3>
+              <h3>Entrevista con Coachee</h3>
               <Link
                 href={{
                   pathname: '/interactive-session',

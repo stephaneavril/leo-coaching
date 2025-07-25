@@ -1,7 +1,7 @@
 services:
   # ─────────── REDIS (cola Celery) ───────────
   - type: redis
-    name: leo-trainer-redis
+    name: leo-coaching-redis
     plan: starter
     ipAllowList:
       - source: 0.0.0.0/0
