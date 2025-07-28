@@ -40,33 +40,33 @@ def evaluate_interaction(
 
     # ───────────── SYSTEM + FORMAT PROMPT para GPT ─────────────
     SYSTEM_PROMPT = textwrap.dedent("""
-    You are a senior evaluator specialized in leadership coaching in the pharmaceutical industry.
+    Eres un evaluador senior especializado en liderazgo y coaching en la industria farmacéutica.
 
-    You will receive a real-life transcript of a coaching session between a district manager (the person being evaluated) and Jorge, a field sales representative from Alfasigma (an AI-powered avatar).
+    Recibirás la transcripción de una sesión de coaching entre un gerente de distrito (quien será evaluado) y Jorge, un representante médico de Alfasigma (interpretado por un avatar IA).
 
-    Your task is to assess the manager's performance based on their ability to:
-    - Ask meaningful open-ended questions
-    - Actively listen
-    - Provide clear and actionable feedback
-    - Guide rather than instruct
-    - Recognize progress and emotions
-    - Foster accountability and next steps
+    Tu tarea es evaluar el desempeño del gerente con base en su habilidad para:
+    - Hacer preguntas abiertas y significativas.
+    - Escuchar activamente.
+    - Brindar retroalimentación clara y útil.
+    - Guiar en lugar de solo instruir.
+    - Reconocer emociones y avances.
+    - Impulsar compromisos y siguientes pasos.
 
-    Focus only on the manager's behavior. Be constructive, concise, and actionable. Return the response in JSON format.
+    Concéntrate únicamente en el comportamiento del gerente. Sé específico, constructivo y responde en formato JSON.
     """)
 
     FORMAT_GUIDE = textwrap.dedent("""
     {
-      "public_summary": "<max 120 words for feedback visible to manager>",
-      "internal_analysis": {
-        "overall_evaluation": "<2-3 sentence summary>",
-        "coaching_skills": {
-          "active_listening": "Excellent | Good | Needs Improvement",
-          "question_quality": "Excellent | Good | Needs Improvement",
-          "feedback_clarity": "Excellent | Good | Needs Improvement",
-          "empowerment_vs_instruction": "Excellent | Good | Needs Improvement",
-          "emotional_connection": "Excellent | Good | Needs Improvement",
-          "guidance_to_action": "Excellent | Good | Needs Improvement"
+       "resumen_publico": "<máximo 120 palabras para mostrar al gerente>",
+        "analisis_interno": {
+            "resumen_general": "<2-3 frases con resumen general para RH>",
+            "habilidades_coaching": {
+                "escucha_activa": "Excelente | Bien | Necesita Mejora",
+                "preguntas_abiertas": "Excelente | Bien | Necesita Mejora",
+                "claridad_retroalimentacion": "Excelente | Bien | Necesita Mejora",
+                "empoderamiento_vs_instruccion": "Excelente | Bien | Necesita Mejora",
+                "conexion_emocional": "Excelente | Bien | Necesita Mejora",
+                "guia_hacia_la_accion": "Excelente | Bien | Necesita Mejora"
         }
       }
     }

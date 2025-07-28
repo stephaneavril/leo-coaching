@@ -363,12 +363,14 @@
     {% set md = fb.Modelo_DaVinci if fb and fb.Modelo_DaVinci is defined
               else (fb.modelo_davinci if fb and fb.modelo_davinci is defined else None) %}
 
-    <h4>🎯 Aplicación del Modelo de Ventas (Da Vinci)</h4>
-    <div class="metric-line"><span>Preparación:</span><span>{{ md.preparacion if md else 'N/A' }}</span></div>
-    <div class="metric-line"><span>Apertura:</span><span>{{ md.apertura if md else 'N/A' }}</span></div>
-    <div class="metric-line"><span>Persuasión:</span><span>{{ md.persuasion if md else 'N/A' }}</span></div>
-    <div class="metric-line"><span>Cierre:</span><span>{{ md.cierre if md else 'N/A' }}</span></div>
-    <div class="metric-line"><span>Análisis Post:</span><span>{{ md.analisis_post if md else 'N/A' }}</span></div>
+    <h4>🧠 Evaluación de Habilidades de Coaching</h4>
+{% set habilidades = fb.habilidades_coaching if fb and fb.habilidades_coaching is defined else None %}
+<div class="metric-line"><span>Escucha Activa:</span><span>{{ habilidades.escucha_activa if habilidades else 'N/A' }}</span></div>
+<div class="metric-line"><span>Preguntas Abiertas:</span><span>{{ habilidades.preguntas_abiertas if habilidades else 'N/A' }}</span></div>
+<div class="metric-line"><span>Claridad de Retroalimentación:</span><span>{{ habilidades.claridad_retroalimentacion if habilidades else 'N/A' }}</span></div>
+<div class="metric-line"><span>Empoderamiento vs Instrucción:</span><span>{{ habilidades.empoderamiento_vs_instruccion if habilidades else 'N/A' }}</span></div>
+<div class="metric-line"><span>Conexión Emocional:</span><span>{{ habilidades.conexion_emocional if habilidades else 'N/A' }}</span></div>
+<div class="metric-line"><span>Guía hacia la Acción:</span><span>{{ habilidades.guia_hacia_la_accion if habilidades else 'N/A' }}</span></div>
 
 
           <h4 style="margin-top: 15px">🧠 Conocimientos y Habilidades</h4>
