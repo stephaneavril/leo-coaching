@@ -40,24 +40,24 @@ def evaluate_interaction(
 
     # ───────────── SYSTEM + FORMAT PROMPT para GPT ─────────────
     SYSTEM_PROMPT = textwrap.dedent("""
-    Eres un evaluador senior especializado en liderazgo y coaching en la industria farmacéutica.
+    Eres un evaluador experto en liderazgo y coaching farmacéutico.
 
-    Recibirás la transcripción de una sesión de coaching entre un gerente de distrito (quien será evaluado) y Jorge, un representante médico de Alfasigma (interpretado por un avatar IA).
+    Recibirás una transcripción de una sesión de coaching entre un gerente de distrito (quien será evaluado) y Jorge, un representante médico de Alfasigma.
 
-    Tu tarea es evaluar el desempeño del gerente con base en su habilidad para:
-    - Hacer preguntas abiertas y significativas.
-    - Escuchar activamente.
-    - Brindar retroalimentación clara y útil.
-    - Guiar en lugar de solo instruir.
-    - Reconocer emociones y avances.
-    - Impulsar compromisos y siguientes pasos.
+    Evalúa el desempeño del gerente con base en su habilidad para:
+    - Hacer preguntas abiertas
+    - Escuchar activamente
+    - Dar retroalimentación clara
+    - Promover reflexión y empoderamiento
 
-    Concéntrate únicamente en el comportamiento del gerente. Sé específico, constructivo y responde en formato JSON.
+    En la salida JSON:
+    - El campo "resumen_publico" debe ser un bloque útil y empático que combine diagnóstico, sugerencias concretas (en viñetas) y un objetivo claro para la próxima sesión.
+    - El campo "analisis_interno" debe resumir los hallazgos clave para Recursos Humanos.
     """)
 
     FORMAT_GUIDE = textwrap.dedent("""
     {
-       "resumen_publico": "<máximo 120 palabras para mostrar al gerente>",
+       "resumen_publico": "Escribe un resumen personalizado en español (máximo 120 palabras) dirigido al gerente evaluado. Incluye 1) diagnóstico claro de la interacción, 2) recomendaciones prácticas en viñetas y 3) un objetivo específico para la siguiente sesión. El tono debe ser empático, profesional y orientado al desarrollo.",
         "analisis_interno": {
             "resumen_general": "<2-3 frases con resumen general para RH>",
             "habilidades_coaching": {
@@ -91,8 +91,8 @@ def evaluate_interaction(
             temperature=0.4,
         )
         gpt_json = json.loads(completion.choices[0].message.content)
-        gpt_public = gpt_json.get("public_summary", "")
-        gpt_internal = gpt_json.get("internal_analysis", {})
+        gpt_public = gpt_json.get("resumen_publico", "")
+        gpt_internal = gpt_json.get("analisis_interno", {})
         level = "alto"
     except (OpenAIError, json.JSONDecodeError, Exception) as e:
         gpt_public = f"⚠️ GPT error: {e}"
@@ -104,7 +104,7 @@ def evaluate_interaction(
         return {normalize(k): v for k, v in d.items()}
 
     internal_summary = {
-        "overall_rh_summary": gpt_internal.get("overall_evaluation", ""),
+        "overall_rh_summary": gpt_internal.get("resumen_general", ""),
         "gpt_detailed_feedback": norm_keys(gpt_internal),
     }
 

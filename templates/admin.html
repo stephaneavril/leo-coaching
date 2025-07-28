@@ -360,8 +360,6 @@
 
     {# --- ALIAS A LOS FEEDBACKS DE GPT --- #}
     {% set fb = row[9].gpt_detailed_feedback %}
-    {% set md = fb.Modelo_DaVinci if fb and fb.Modelo_DaVinci is defined
-              else (fb.modelo_davinci if fb and fb.modelo_davinci is defined else None) %}
 
     <h4>🧠 Evaluación de Habilidades de Coaching</h4>
 {% set habilidades = fb.habilidades_coaching if fb and fb.habilidades_coaching is defined else None %}
