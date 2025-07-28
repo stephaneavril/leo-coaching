@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Desempeño por Gerente</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f4f6fa;
+      color: #333;
+      margin: 0;
+      padding: 2rem;
+    }
+    h1 {
+      color: #003559;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 1rem;
+    }
+    th, td {
+      padding: 12px;
+      border: 1px solid #ccc;
+      text-align: left;
+    }
+    th {
+      background: #003559;
+      color: white;
+    }
+    tr:nth-child(even) {
+      background-color: #f9f9f9;
+    }
+    .btn {
+      padding: 6px 12px;
+      background-color: #00bfff;
+      color: black;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .btn:hover {
+      background-color: #009acd;
+    }
+  </style>
+</head>
+<body>
+  <h1>Desempeño Consolidado por Gerente</h1>
+  <table>
+    <tr>
+      <th>Nombre</th>
+      <th>Email</th>
+      <th>Nº Sesiones</th>
+      <th>Promedio Escucha Activa</th>
+      <th>Última Evaluación</th>
+      <th>Acciones</th>
+    </tr>
+    {% for row in data %}
+    <tr>
+      <td>{{ row[0] }}</td>
+      <td>{{ row[1] }}</td>
+      <td>{{ row[2] }}</td>
+      <td>
+        {% if row[3] >= 2.5 %}🟢 Excelente
+        {% elif row[3] >= 1.8 %}🟡 Bien
+        {% else %}🔴 Mejora
+        {% endif %} ({{ row[3]|round(1) }})
+      </td>
+      <td>{{ row[4] }}</td>
+      <td>
+        <a class="btn" href="/admin/gerente/{{ row[1] }}">🔍 Ver detalle</a>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+</body>
+</html>

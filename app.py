@@ -1074,6 +1074,25 @@ def publish_ai(sid: int):
     flash(f"Sesión {sid} publicada con análisis IA ✅", "success")
     return redirect(url_for("admin_panel"))
 
+@app.route("/admin/gerentes")
+def dashboard_gerentes():
+    # Consulta para agrupar sesiones por gerente
+    conn = get_db_connection()
+    rows = conn.execute("""
+        SELECT nombre, email, COUNT(*) as sesiones,
+               AVG(CASE
+                   WHEN json_extract(data, '$.gpt_detailed_feedback.habilidades_coaching.escucha_activa') = 'Excelente' THEN 3
+                   WHEN json_extract(data, '$.gpt_detailed_feedback.habilidades_coaching.escucha_activa') = 'Bien' THEN 2
+                   WHEN json_extract(data, '$.gpt_detailed_feedback.habilidades_coaching.escucha_activa') = 'Necesita Mejora' THEN 1
+                   ELSE NULL
+               END) as promedio_escucha,
+               MAX(fecha) as ultima_sesion
+        FROM evaluaciones
+        GROUP BY email
+    """).fetchall()
+    conn.close()
+    return render_template("dashboard_gerentes.html", data=rows)
+
 @app.route("/healthz")
 def health_check():
     return "OK", 200
