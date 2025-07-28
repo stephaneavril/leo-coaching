@@ -48,6 +48,11 @@
 </head>
 <body>
   <h1>Desempeño Consolidado por Gerente</h1>
+  {% if data|length == 0 %}
+  <p style="margin-top: 20px; color: #ccc; font-size: 18px;">
+    No hay evaluaciones disponibles aún. Cuando se completen sesiones, verás los resultados aquí.
+  </p>
+{% else %}
   <table>
     <tr>
       <th>Nombre</th>
