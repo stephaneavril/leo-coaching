@@ -33,7 +33,7 @@ import { LoaderCircle } from 'lucide-react';
 // ───────────────────────────────────────────────────────────────
 const DEFAULT_CONFIG: StartAvatarRequest = {
   quality: AvatarQuality.Low,
-  avatarName: 'Pedro_Chair_Sitting_public',
+  avatarName: 'Graham_Black_Suit_public',
   knowledgeId: 'bca7f7c812cf49caabe462699a579b44',
   language: 'es',
   voice: {
