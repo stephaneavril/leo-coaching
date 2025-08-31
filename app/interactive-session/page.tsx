@@ -81,8 +81,8 @@ function InteractiveSessionContent() {
   const [isVoiceActive, setIsVoiceActive] = useState(false); // ← recuperado del viejo
 
   // ── Refs ─────────────────────────────────────────────────────
-  const recordingTimerRef = useRef<number>(480);
-  const [timerDisplay, setTimerDisplay] = useState('08:00');
+  const recordingTimerRef = useRef<number>(900);
+  const [timerDisplay, setTimerDisplay] = useState('15:00');
   const messagesRef = useRef<any[]>([]);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunks = useRef<Blob[]>([]);

@@ -17,6 +17,7 @@ import boto3
 from botocore.exceptions import ClientError
 import re
 from flask import Flask, request, redirect, url_for, flash, render_template
+from evaluator import evaluate_and_persist
 
 
 # 1) Carga variables de entorno
@@ -624,7 +625,7 @@ def admin_panel():
                 "summary": summary
             })
 
-        contracted_minutes = 1050
+        contracted_minutes = 120
 
     except Exception as e:
         print(f"Error en el panel de administración (PostgreSQL): {e}")
@@ -737,48 +738,33 @@ def validate_user_endpoint():
 @app.route("/admin/recompute/<int:session_id>", methods=["GET", "POST"])
 def admin_recompute(session_id: int):
     user_t, leo_t = "", ""
-
-    # 1) obtener textos de la sesión
+    conn = None
     try:
-        conn = _db_conn()
+        conn = get_db_connection()
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT message, response
-                FROM interactions
-                WHERE id = %s
-                """,
-                (session_id,),
-            )
+            cur.execute("SELECT message, response FROM interactions WHERE id=%s", (session_id,))
             row = cur.fetchone()
-        conn.close()
         if not row:
             print(f"[recompute] sesión {session_id} no encontrada")
             return redirect("/admin")
 
-        # ⚠️ IMPORTANTE: message/response están guardados como JSON (listas de strings)
         try:
             user_msgs = json.loads(row[0]) if row[0] else []
             leo_msgs  = json.loads(row[1]) if row[1] else []
         except Exception:
             user_msgs, leo_msgs = [row[0] or ""], [row[1] or ""]
+        user_t = "\n".join([str(x) for x in user_msgs])
+        leo_t  = "\n".join([str(x) for x in leo_msgs])
 
-        user_t = "\n".join(user_msgs)
-        leo_t  = "\n".join(leo_msgs)
-
-    except Exception as e:
-        print(f"[recompute] error leyendo BD: {e}")
-        return redirect("/admin")
-
-    # 2) re-evaluar y persistir (genera/actualiza internal.compact)
-    try:
+        # Evalúa y persiste (usa evaluator.py)
         evaluate_and_persist(session_id, user_t, leo_t, video_path=None)
         print(f"[recompute] sesión {session_id} evaluada OK")
     except Exception as e:
         print(f"[recompute] error evaluando sesión {session_id}: {e}")
-
-    # 3) volver al panel
+    finally:
+        if conn: conn.close()
     return redirect("/admin")
+
 
 # ─────────────────────────────────────────────────────────
 #  DASHBOARD DATA  –  Devuelve las sesiones del usuario
@@ -985,30 +971,42 @@ def _as_json_list(txt: Union[str, list]) -> str:
 def log_full_session():
     data = request.get_json() or {}
 
-    # 0) Campos mínimos que esperamos
-    name             = data.get("name")
-    email            = data.get("email")
-    scenario         = data.get("scenario")
-    duration         = int(data.get("duration", 0))
-    video_key        = data.get("video_object_key") or data.get("s3_object_key")
-    user_raw         = data.get("conversation", "")
-    avatar_raw       = data.get("avatar_transcript", "")
+    # 0) Campos mínimos
+    name       = data.get("name")
+    email      = data.get("email")
+    scenario   = data.get("scenario")
+    duration   = int(data.get("duration", 0))
+    # 👉 Tope duro: 15 min = 900 s
+    if duration > 900:
+        duration = 900
+    if duration < 0:
+        duration = 0
 
-    # 1) Normalizamos SIEMPRE a JSON-list para evitar errores de parseo después
+    video_key  = data.get("video_object_key") or data.get("s3_object_key")
+    user_raw   = data.get("conversation", "")
+    avatar_raw = data.get("avatar_transcript", "")
+
+    # 1) Normaliza SIEMPRE a JSON-list
+    def _as_json_list(txt):
+        if isinstance(txt, list):
+            return json.dumps([str(t) for t in txt])
+        if isinstance(txt, str) and txt.strip():
+            return json.dumps([l for l in txt.splitlines() if l.strip()])
+        return json.dumps([])
+
     user_json   = _as_json_list(user_raw)
     avatar_json = _as_json_list(avatar_raw)
 
-    # 2) Resúmenes / tips  ——  (por ahora placeholders vacíos → generarás después)
-    public_summary       = data.get("evaluation",       "")  # IA externa
-    internal_summary_db  = data.get("evaluation_rh",    "")  # RH interna
-    tip_text             = data.get("tip",              "")
-    posture_feedback     = data.get("visual_feedback",  "")
+    # 2) Otros campos (opcionales)
+    public_summary      = data.get("evaluation",      "")
+    internal_summary_db = data.get("evaluation_rh",   "")
+    tip_text            = data.get("tip",             "")
+    posture_feedback    = data.get("visual_feedback", "")
 
     # 3) Timestamp estándar ISO-UTC
-    timestamp_iso = datetime.utcnow().isoformat()    
-    # 4) Montamos URL S3 completa *solo si* tenemos key
+    timestamp_iso = datetime.utcnow().isoformat()
     video_url = (
-        f"https://{AWS_S3_BUCKET_NAME}.s3.{AWS_S3_REGION_NAME}.amazonaws.com/{video_key}"
+        f"https://{os.getenv('AWS_S3_BUCKET_NAME','')}.s3.{os.getenv('AWS_S3_REGION_NAME','')}.amazonaws.com/{video_key}"
         if video_key else None
     )
 
@@ -1021,69 +1019,49 @@ def log_full_session():
                 INSERT INTO interactions
                        (name, email, scenario,
                         message, response,
-                        audio_path,            -- guardamos la key (no la URL)
+                        audio_path,
                         timestamp,
                         evaluation, evaluation_rh,
                         duration_seconds,
                         tip, visual_feedback)
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                RETURNING id;
+                RETURNING id
                 """,
                 (
-                    name, email, scenario,
-                    user_json,
-                    avatar_json,
-                    video_key,            # se servirá vía /video/<key>
+                    name or "", email or "", scenario or "",
+                    user_json, avatar_json,
+                    video_key,  # guardamos la key para servir /video/<key>
                     timestamp_iso,
                     public_summary,
                     internal_summary_db,
-                    duration,
+                    duration,           # ← ya viene capado a 900 s
                     tip_text,
                     posture_feedback,
                 ),
             )
             session_id = cur.fetchone()[0]
         conn.commit()
-        
         print(f"[DB] Sesión #{session_id} registrada correctamente.")
-        
 
-        # ───────── LANZA LA TAREA CELERY ─────────
-        from celery_worker import process_session_transcript   # o el nombre real
-        
-      # ─── 2. construye el payload ───
+        # 4) Encolar Celery con AMBOS transcripts (lo ya existente)
+        from celery_worker import process_session_transcript
         task_data = {
-            "session_id":      session_id,
-            "duration":        duration,          # opcional, para métricas
-            "video_object_key": video_key,
-            "user_transcript": user_json          # ⬅️  solo el texto del usuario
-            # (si quisieras seguir guardando la key del video –p. ej. para reproducirlo
-            # en el panel RH– ponla en la BD como ya haces, pero NO hace falta enviarla)
+            "session_id":        session_id,
+            "duration":          duration,
+            "video_object_key":  video_key,
+            "user_transcript":   json.loads(user_json),
+            "avatar_transcript": json.loads(avatar_json),
         }
+        process_session_transcript.delay(task_data)
 
-        # ─── 3. lanza la tarea ───
-        result = process_session_transcript.delay(task_data)          # ← añade result =
-
-        app.logger.info("🚀  Sesión %s ENCOLADA (task_id=%s)", session_id, result.id)
-        # ─────────────────────────────────────────
-        return jsonify(
-            {
-                "status": "success",
-                "session_id": session_id,
-                "video_url": video_url,  # por si el front la necesita
-                "message": "Sesión registrada.",
-            }
-        ), 200
+        return jsonify({"status": "ok", "session_id": session_id}), 200
 
     except Exception as e:
-        if conn:
-            conn.rollback()
-        print(f"[ERROR] log_full_session: {e}")
+        if conn: conn.rollback()
+        print(f"[DB] Error en log_full_session: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
-
     finally:
-        if conn:
-            conn.close()
+        if conn: conn.close()
 
 # --- helper corto ---
 def get_db():
