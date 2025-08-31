@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
 // ──────────────────────────────────────────────
-// 1.  Tipos
+// 1) Tipos
 // ──────────────────────────────────────────────
 interface SessionRecord {
   id?: number;
@@ -13,12 +13,12 @@ interface SessionRecord {
   user_transcript: string;
   avatar_transcript: string;
   coach_advice: string;
-  rh_evaluation?: string;              // ⬅️ nuevo
+  rh_evaluation?: string;      // feedback de capacitación (opcional)
   video_s3: string | null;
   created_at: string;
   tip: string;
   visual_feedback: string;
-  duration: number;
+  duration: number;            // segundos
 }
 
 interface DashboardData {
@@ -26,18 +26,16 @@ interface DashboardData {
   email: string;
   user_token: string;
   sessions: SessionRecord[];
-  used_seconds: number;
+  used_seconds: number;        // consumo acumulado del mes
 }
 
-// Valores especiales que indican que el video no está listo
+// Valores que indican que el video no está listo
 const SENTINELS = [
   'Video_Not_Available_Error',
   'Video_Processing_Failed',
   'Video_Missing_Error',
 ];
 
-// ──────────────────────────────────────────────
-// 2.  Componente principal
 // ──────────────────────────────────────────────
 export default function DashboardClient({
   initialData,
@@ -48,45 +46,32 @@ export default function DashboardClient({
 }) {
   const router = useRouter();
 
-  /*  Pantalla de error  */
+  // Pantalla de error
   if (error) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center">
         <style jsx global>{`
-          html,
-          body {
-            margin: 0;
-            padding: 0;
-            background: #0c0e2c;
-            color: #fff;
-            font-family: 'Open Sans', sans-serif;
-          }
+          html, body { margin: 0; padding: 0; background: #0c0e2c; color: #fff; font-family: 'Open Sans', sans-serif; }
         `}</style>
-        <h2 className="text-2xl text-red-500 mb-4">Error al cargar datos</h2>
+        <h2 className="text-2xl text-red-500 mb-2">Error al cargar datos</h2>
         <p>{error}</p>
       </div>
     );
   }
 
+  // Loading
   if (!initialData) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <style jsx global>{`
-          html,
-          body {
-            margin: 0;
-            padding: 0;
-            background: #0c0e2c;
-            color: #fff;
-            font-family: 'Open Sans', sans-serif;
-          }
+          html, body { margin: 0; padding: 0; background: #0c0e2c; color: #fff; font-family: 'Open Sans', sans-serif; }
         `}</style>
         Cargando…
       </div>
     );
   }
 
-  // ─── Destructuración segura ─────────────────
+  // ─── Destructuración ─────────────────────────
   const {
     name: userName,
     email,
@@ -95,16 +80,15 @@ export default function DashboardClient({
     used_seconds: usedSeconds = 0,
   } = initialData;
 
+  // Normaliza registros
   const records: SessionRecord[] = sessions.map((s) => ({
     ...s,
     video_s3: s.video_s3 && !SENTINELS.includes(s.video_s3) ? s.video_s3 : null,
     created_at: s.created_at ? new Date(s.created_at).toLocaleString() : '',
   }));
-  // ⬇️ Solo mostrar las sesiones que RH o IA ya publicaron
-const visibleRecords = records.filter(
-  (r) => r.coach_advice || r.rh_evaluation
-);
 
+  // Solo mostrar las sesiones que RH o IA ya publicaron
+  const visibleRecords = records.filter((r) => r.coach_advice || r.rh_evaluation);
 
   // Utilidades
   const formatTime = (seconds: number) => {
@@ -113,40 +97,36 @@ const visibleRecords = records.filter(
     return `${mins}m ${secs.toString().padStart(2, '0')}s`;
   };
 
+  // LÍMITE mensual y escenario GROW
   const maxSeconds = 1_800; // 30 min
-  const defaultScenario = 'Entrevista con médico';
+  const defaultScenario = 'Coaching con LEO (GROW)';
 
   // ────────────────────────────────────────────
-  // 3.  Render
+  // 3) Render
   // ────────────────────────────────────────────
   return (
     <>
       {/* =========== ESTILOS GLOBAL ============ */}
       <style jsx global>{`
-        @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&family=Open+Sans:wght@400;600&display=swap');
-html,
-  body,
-  .dashboard-page-container {
-    background: #f4f6fa !important;   /* gris claro corporativo   */
-    color: #222 !important;           /* texto oscuro legible    */
-  }
+        @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@500;700&family=Open+Sans:wght@400;600&display=swap');
+
         :root {
           --primary-dark: #0c0e2c;
           --primary-mid: #003559;
           --primary-light: #00bfff;
-          --secondary-red: #cc0000;
           --text-dark: #222;
           --bg-gray: #f4f6fa;
           --bg-white: #ffffff;
-          --shadow-lg: rgba(0, 0, 0, 0.15);
+          --shadow-lg: rgba(0, 0, 0, 0.12);
+          --warning: #fff8e1;
+          --warning-border: #ffca28;
         }
 
-        html,
-        body {
+        html, body, .dashboard-page-container {
+          background: var(--bg-gray) !important;
+          color: var(--text-dark) !important;
           margin: 0;
           padding: 0;
-          background: var(--bg-gray);
-          color: var(--text-dark);
           font-family: 'Open Sans', sans-serif;
         }
 
@@ -154,146 +134,119 @@ html,
         header {
           display: flex;
           flex-direction: column;
-          align-items: flex-start;
-          gap: 4px;
-          padding: 16px 32px;
-          background: linear-gradient(
-            90deg,
-            var(--primary-dark) 0%,
-            var(--primary-mid) 50%,
-            var(--primary-light) 100%
-          );
-          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+          gap: 6px;
+          padding: 18px 28px;
+          background: linear-gradient(90deg, var(--primary-dark), var(--primary-mid) 55%, var(--primary-light));
           color: #fff;
+          box-shadow: 0 2px 6px rgba(0,0,0,.45);
         }
         header h1 {
+          margin: 0;
           font-family: 'Montserrat', sans-serif;
           font-weight: 700;
-          font-size: 28px;
-          margin: 0;
+          font-size: 26px;
+          letter-spacing: .2px;
+        }
+        header p { margin: 0; opacity: .9; }
+
+        .container-content { max-width: 1100px; margin: 0 auto; padding: 32px 22px 40px; }
+
+        .section-title {
+          font: 700 22px 'Montserrat', sans-serif;
+          margin: 28px 0 16px;
+          color: var(--primary-dark);
+          display: inline-block;
+          border-bottom: 3px solid var(--primary-light);
+          padding-bottom: 6px;
         }
 
-        /* General containers */
-        .container-content {
-          max-width: 1200px;
-          margin: 0 auto;
-          padding: 40px 32px;
+        /* Aviso de voz */
+        .voice-alert {
+          background: var(--warning);
+          border: 2px solid var(--warning-border);
+          color: #5b4400;
+          border-radius: 12px;
+          padding: 14px 16px;
+          box-shadow: 0 6px 14px rgba(0,0,0,.06);
+          margin: 8px 0 22px;
         }
-        .section-title {
-          font: 600 24px 'Montserrat', sans-serif;
-          margin: 40px 0 24px;
-          border-bottom: 2px solid var(--primary-light);
-          padding-bottom: 10px;
-          color: var(--primary-dark);
-        }
+        .voice-alert strong { color: #5b4400; }
+        .voice-alert ul { margin: 8px 0 0; padding-left: 18px; }
+        .voice-alert li { margin: 4px 0; }
 
         /* Cards */
-        .card-grid {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 20px;
-          margin-top: 20px;
-        }
+        .card-grid { display: flex; flex-wrap: wrap; gap: 16px; }
         .card {
           background: var(--bg-white);
-          border-radius: 10px;
-          padding: 20px;
-          box-shadow: 0 4px 10px var(--shadow-lg);
+          border-radius: 14px;
+          padding: 18px;
           width: 260px;
-          text-align: center;
-          transition: transform 0.2s ease;
+          box-shadow: 0 8px 22px var(--shadow-lg);
+          transition: transform .18s ease;
+          border: 1px solid #eef2f7;
         }
-        .card:hover {
-          transform: translateY(-5px);
-        }
-        .card h3 {
-          margin: 10px 0;
-          color: var(--primary-dark);
-        }
+        .card:hover { transform: translateY(-3px); }
+        .card h3 { margin: 4px 0 12px; font-family: 'Montserrat'; color: var(--primary-dark); }
+        .card p { margin: 0 0 12px; font-size: .93rem; opacity: .9; }
         .card button {
-          padding: 10px 20px;
-          border: none;
-          background: var(--primary-light);
-          color: #000;
-          border-radius: 5px;
-          cursor: pointer;
-          font-weight: 600;
-          transition: background 0.2s ease, transform 0.1s ease;
+          padding: 10px 16px;
+          border: none; border-radius: 8px;
+          background: var(--primary-light); color:#000; font-weight: 700;
+          cursor: pointer; transition: background .15s ease, transform .1s ease;
+          width: 100%;
         }
-        .card button:hover {
-          background: #009acd;
-          transform: translateY(-1px);
-        }
+        .card button:hover { background: #00a4e6; transform: translateY(-1px); }
 
-        /* Progress bar */
+        /* Progress */
         .progress-bar {
-          background: #e9ecef;
-          border-radius: 8px;
-          overflow: hidden;
-          height: 25px;
-          margin-top: 12px;
-          border: 1px solid #dee2e6;
+          background: #e9eef4; border-radius: 10px; overflow: hidden; height: 18px;
+          border: 1px solid #dbe4ee; margin: 10px 0 6px;
         }
         .progress-fill {
-          height: 100%;
-          background: linear-gradient(to right, #00bfff, #007bff);
-          display: flex;
-          align-items: center;
-          justify-content: flex-end;
-          padding-right: 10px;
-          color: #fff;
-          font-weight: bold;
-          font-size: 0.9em;
-          transition: width 0.4s ease-out;
+          height: 100%; background: linear-gradient(to right, #00bfff, #007bff);
+          display: flex; align-items: center; justify-content: flex-end;
+          padding-right: 8px; color: #fff; font-weight: 700; font-size: 12px;
+          transition: width .35s ease-out;
         }
+        .muted { color: #566; font-size: .92rem; }
 
-        /* Session cards */
+        /* Session card */
         .session-entry {
           background: var(--bg-white);
           border-radius: 16px;
-          box-shadow: 0 8px 24px var(--shadow-lg);
-          padding: 24px;
-          margin-bottom: 40px;
-          display: grid;
-          grid-template-columns: 1fr;
-          gap: 24px;
-        }
-        @media (min-width: 1024px) {
-          .session-entry {
-            grid-template-columns: 1fr 380px;
-          }
+          box-shadow: 0 10px 28px var(--shadow-lg);
+          padding: 20px;
+          margin-bottom: 24px;
+          border: 1px solid #eef2f7;
         }
         .session-entry h3 {
-          font: 600 20px 'Montserrat', sans-serif;
-          color: var(--primary-dark);
-          margin-bottom: 12px;
-          border-bottom: 1px solid #eee;
-          padding-bottom: 8px;
-        }
-        .session-entry video {
-          width: 100%;
-          border: 1px solid var(--primary-light);
-          border-radius: 12px;
-          object-fit: cover;
-          box-shadow: 0 4px 10px var(--shadow-lg);
+          margin: 0 0 6px;
+          font: 700 18px 'Montserrat', sans-serif; color: var(--primary-dark);
         }
 
         .evaluation-box {
-          margin-top: 15px;
-          padding: 15px;
-          border-radius: 8px;
-          background: #e0f7fa;
-          border-left: 5px solid #0099cc;
+          margin-top: 14px; padding: 14px; border-radius: 12px;
+          background: #eaf7fb; border-left: 6px solid #00a4e6;
         }
-        .evaluation-box.rh-box {
-          background: #ffeeee;
-          border-left-color: var(--secondary-red);
+        .evaluation-box.rh-box { background:#fff1f1; border-left-color:#cc0000; }
+        .evaluation-box.tip-box { background:#f7fbff; border-left-color:#00bfff; }
+
+        /* How-to / GROW */
+        .howto-box{
+          background: var(--bg-white);
+          border: 1px solid #eef2f7;
+          border-radius: 14px;
+          box-shadow: 0 6px 18px var(--shadow-lg);
+          padding: 16px 18px;
+          margin: 10px 0 22px;
         }
-        .evaluation-box.tip-box,
-        .evaluation-box.visual-feedback-box {
-          background: #f9fbff;
-          border-left-color: var(--primary-light);
+        .howto-box h3{
+          margin: 0 0 10px;
+          font: 700 18px 'Montserrat', sans-serif;
+          color: var(--primary-dark);
         }
+        .howto-box ol{ margin: 8px 0 0; padding-left: 20px; line-height: 1.6; }
+        .howto-box li{ margin: 6px 0; }
       `}</style>
 
       {/* ---------- Página ---------- */}
@@ -301,27 +254,45 @@ html,
         {/* ---------- Encabezado ---------- */}
         <header>
           <h1>¡Bienvenido/a, {userName}!</h1>
-          <p>Centro de entrenamiento virtual con Leo</p>
+          <p>Centro de coaching con LEO (GROW)</p>
         </header>
 
         <div className="container-content">
-          {/* ---------- Selección de escenario ---------- */}
+
+          {/* ---------- AVISO para voz ---------- */}
+          <div className="voice-alert" role="alert" aria-live="polite">
+            <strong>⚠️ Para que la voz funcione bien:</strong>
+            <ul>
+              
+              <li>Permite <strong>micrófono y cámara</strong> cuando el navegador lo pida.</li>
+              <li>Haz clic en INICIAR, después <strong>“Iniciar Chat de Voz”</strong>, después clic en TEXT CHAT y justo después clic en VOICE CHAT.</li>
+            
+              <li>Preferible usar <strong>audífonos</strong> para evitar eco.</li>
+            </ul>
+          </div>
+
+          {/* ---------- Selección de entrenamiento ---------- */}
           <h2 className="section-title">Selecciona tu entrenamiento</h2>
-<section style={{marginTop: '24px'}}>
-  <h2 className="section-title">Cómo aprovechar a Leo en 7 pasos</h2>
-  <ol style={{paddingLeft: '20px', lineHeight: '1.6'}}>
-    <li>Elige el escenario de entrenamiento que necesitas.</li>
-    <li>Activa cámara y micrófono; verifica que todo funcione.</li>
-    <li>Haz clic en <strong>Iniciar Chat de Voz</strong> y saluda al avatar con "Buenos días Jorge".</li>
-    <li>El avatar te plantea el escenario que debes ir guiando</li>
-    <li>Recuerda que lo coaches y es una conversación dificil</li>
-    <li>Dispones de 8 minutos por sesion y 30 minutos en el mes.</li>
-    <li>Cuando terminas tu entrevista desconectate. Las personas de Capacitación revisarán con el apoyo de Inteligencia artificial y ofrecerán feedcback. Puede demorar algunas horas. Revisa tu análisis y repite la sesión enfocándote en un punto a mejorar.</li>
-  </ol>
-</section>
+
+          {/* Instrucciones GROW */}
+          <section className="howto-box">
+            <h3>Cómo practicar GROW en 7 pasos</h3>
+            <ol>
+              <li>Elige el escenario “Coaching con LEO (GROW)”.</li>
+              <li>Activa cámara y micrófono; verifica que todo funcione.</li>
+              <li>Saluda a LEO y define tu <strong>Goal</strong> (meta) de la sesión.</li>
+              <li>Explora la <strong>Reality</strong> de LEO con <strong>3 preguntas abiertas</strong> y parafraseo.</li>
+              <li>Co-creen <strong>Options</strong>: 2 alternativas concretas para avanzar.</li>
+              <li>Cierren con <strong>Will</strong>: 2 acciones, con <strong>fecha</strong> y <strong>seguimiento</strong>.</li>
+              <li>Dispones de <strong>15 minutos por sesión</strong> y <strong>30 minutos</strong> al mes.</li>
+            </ol>
+          </section>
+
+          {/* Card de inicio */}
           <div className="card-grid">
             <div className="card">
-              <h3>Entrevista con Coachee</h3>
+              <h3>Coaching con LEO (GROW)</h3>
+              <p>Practica metas, realidad, opciones y compromisos.</p>
               <Link
                 href={{
                   pathname: '/interactive-session',
@@ -340,82 +311,74 @@ html,
           </div>
 
           {/* ---------- Consumo de minutos ---------- */}
-          <div className="info" style={{ marginTop: '30px' }}>
-            <strong>⏱ Tiempo mensual usado:</strong>
-            <div className="progress-bar">
+          <div style={{ marginTop: '22px' }}>
+            <strong>⏱ Tiempo mensual usado</strong>
+            <div className="progress-bar" aria-label="Consumo mensual">
               <div
                 className="progress-fill"
-                style={{ width: `${(usedSeconds / maxSeconds) * 100}%` }}
+                style={{ width: `${Math.min(100, (usedSeconds / maxSeconds) * 100)}%` }}
               />
             </div>
-            <p>
+            <div className="muted">
               {formatTime(usedSeconds)} / {formatTime(maxSeconds)}
-            </p>
+            </div>
           </div>
 
-        {/* ---------- Historial de sesiones ---------- */}
-          <div className="session-log">
-            <h2 className="section-title">Tus sesiones anteriores</h2>
+          {/* ---------- Historial de sesiones ---------- */}
+          <h2 className="section-title">Tus sesiones anteriores</h2>
 
-            {visibleRecords.length === 0 ? (
-              <p>Aún no tienes retroalimentación disponible.</p>
-            ) : (
-              visibleRecords.map((r) => (
-                <div key={r.id ?? r.created_at} className="session-entry">
-                  {/* Columna A */}
-                  <div>
-                    <h3>{r.scenario}</h3>
-                    <p style={{ margin: 0, fontSize: '0.9rem' }}>
-                      <strong>Fecha:</strong> {r.created_at}
-                    </p>
-
-                    {/* Resumen IA público */}
-                    {r.coach_advice && (
-                      <div className="evaluation-box">
-                        <p>{r.coach_advice}</p>
-                      </div>
-                    )}
-
-                    {/* Comentario RH */}
-                    {r.rh_evaluation && (
-                      <div className="evaluation-box rh-box">
-                        <p>
-                          <strong>Comentario RH:</strong> {r.rh_evaluation}
-                        </p>
-                      </div>
-                    )}
-
-                    {/* Tip */}
-                    {r.tip && (
-                      <div className="evaluation-box tip-box">
-                        <p>
-                          <strong>Consejo:</strong> {r.tip}
-                        </p>
-                      </div>
-                    )}
-
-                    {/* Feedback visual */}
-                    {r.visual_feedback && (
-                      <div className="evaluation-box visual-feedback-box">
-                        <p>
-                          <strong>Feedback visual:</strong> {r.visual_feedback}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Columna B: video */}
-                  <div>
-                    {r.video_s3 ? (
-                      <video controls src={r.video_s3} />
-                    ) : (
-                      <p>Video no disponible o procesando.</p>
-                    )}
-                  </div>
+          {visibleRecords.length === 0 ? (
+            <p className="muted">Aún no tienes retroalimentación disponible.</p>
+          ) : (
+            visibleRecords.map((r) => (
+              <div key={r.id ?? r.created_at} className="session-entry">
+                <h3>{r.scenario}</h3>
+                <div className="muted">Fecha: {r.created_at}</div>
+                <div className="muted">
+                  Duración: {Math.max(1, Math.round((r.duration || 0) / 60))} min
                 </div>
-              ))
-            )}
-          </div>
+
+                {/* Resumen IA público */}
+                {r.coach_advice && (
+                  <div className="evaluation-box">
+                    <p style={{ marginTop: 0, marginBottom: 8 }}>
+                      <strong>Resumen de tu sesión</strong>
+                    </p>
+                    <p style={{ marginBottom: 0 }}>{r.coach_advice}</p>
+                  </div>
+                )}
+
+                {/* Comentario RH */}
+                {r.rh_evaluation && (
+                  <div className="evaluation-box rh-box">
+                    <p style={{ marginTop: 0, marginBottom: 8 }}>
+                      <strong>Mensaje de Capacitación</strong>
+                    </p>
+                    <p style={{ marginBottom: 0 }}>{r.rh_evaluation}</p>
+                  </div>
+                )}
+
+                {/* Tip / Visual */}
+                {r.tip && (
+                  <div className="evaluation-box tip-box">
+                    <p style={{ marginTop: 0 }}>
+                      <strong>Idea para tu próxima práctica</strong>
+                    </p>
+                    <p style={{ marginBottom: 0 }}>{r.tip}</p>
+                  </div>
+                )}
+
+                {/* Video (si está listo) */}
+                <div style={{ marginTop: 12 }}>
+                  {r.video_s3 ? (
+                    <video controls src={r.video_s3} style={{ width: '100%', borderRadius: 12 }} />
+                  ) : (
+                    <p className="muted">Video no disponible o en procesamiento.</p>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </div>
     </>
