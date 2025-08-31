@@ -41,13 +41,22 @@ def _count_hits(nt: str, phrases) -> int:
     return sum(1 for p in phrases if _fuzzy(nt, _strip_accents(p.lower())))
 
 # ───────────────────────── Heurísticas GROW ─────────────────────────
-
-OPEN_Q = ("como", "que", "cual", "cuando", "por que", "que tan", "en que medida")
-WILL_HINTS = ("fecha", "cuando", "antes de", "para el", "proxima semana", "dos semanas",
-              "revisamos", "seguimiento", "compromiso", "acordamos", "plan de accion")
-LISTEN_HINTS = ("entiendo", "si te entiendo", "si entiendo bien", "lo que dices", "parafraseando",
-                "veo que", "suena a que")
-EMPOWER_HINTS = ("que opciones", "que alternativas", "como podrias", "que te ayudaria", "que necesitas")
+# Añadimos "cuentame / platicame / hablame" como preguntas abiertas
+OPEN_Q = (
+    "como", "que", "cual", "cuando", "por que", "que tan", "en que medida",
+    "cuentame", "cuentame mas", "platicame", "hablame"
+)
+WILL_HINTS = (
+    "fecha", "cuando", "antes de", "para el", "proxima semana", "dos semanas",
+    "revisamos", "seguimiento", "compromiso", "acordamos", "plan de accion", "revisemos"
+)
+LISTEN_HINTS = (
+    "entiendo", "si te entiendo", "si entiendo bien", "lo que dices", "parafraseando",
+    "veo que", "suena a que"
+)
+EMPOWER_HINTS = (
+    "que opciones", "que alternativas", "como podrias", "que te ayudaria", "que necesitas"
+)
 
 COACH_SKILLS = {
     "preguntas_abiertas": list(OPEN_Q),
@@ -58,7 +67,6 @@ COACH_SKILLS = {
 
 def _score_grow(manager: str) -> Dict[str, str]:
     nt = _norm(manager)
-    # señales básicas
     open_q = _count_hits(nt, OPEN_Q)
     followup = any(h in nt for h in WILL_HINTS)
     empower = _count_hits(nt, EMPOWER_HINTS)
@@ -79,7 +87,7 @@ def _score_skills(manager: str) -> Dict[str, str]:
     for skill, plist in COACH_SKILLS.items():
         h = _count_hits(nt, plist)
         out[skill] = "Excelente" if h >= 4 else "Bien" if h >= 2 else "Necesita Mejora"
-    # complementos neutrales
+    # complementos neutrales (no heurísticos por ahora)
     out.setdefault("retro_clara", "Bien")
     out.setdefault("conexion_emocional", "Bien")
     return out
@@ -92,7 +100,7 @@ def _quality_signals(manager: str) -> Dict[str, object]:
         "length_tokens": tokens,
         "question_marks": qmarks,
         "question_rate_pct": round(qmarks / max(1, tokens) * 100, 2),
-        "closing_present": any(k in _norm(t) for k in ["siguiente paso", "acordamos", "compromiso"]),
+        "closing_present": any(k in _norm(t) for k in ["siguiente paso", "acordamos", "compromiso", "revisamos", "revisemos"]),
     }
 
 def _to_num(level: str) -> int:
@@ -115,6 +123,42 @@ def _db_conn():
         database=p.path[1:], user=p.username, password=p.password,
         host=p.hostname, port=p.port, sslmode="require"
     )
+
+# ───────────────────────── Compact ─────────────────────────
+
+def _build_compact(internal: dict) -> dict:
+    grow = internal.get("grow_eval", {}) or {}
+    avg0_10 = internal.get("kpis", {}).get("avg_score", 0.0)
+    avg1_3  = internal.get("kpis", {}).get("avg_phase_score_1_3", 1.0)
+    strengths, opps = [], []
+
+    if grow.get("goal") in ("Bien","Excelente"): strengths.append("Define meta al inicio")
+    else: opps.append("Aclarar meta y criterio de éxito")
+
+    if grow.get("reality") == "Excelente": strengths.append("Explora realidad con preguntas abiertas")
+    else: opps.append("Hacer 3 preguntas abiertas + parafraseo")
+
+    if grow.get("options") in ("Bien","Excelente"): strengths.append("Co-crea opciones")
+    else: opps.append("Generar 2 opciones viables")
+
+    if grow.get("will") == "Excelente": strengths.append("Cierra con fecha y seguimiento")
+    else: opps.append("Acordar 2 acciones con fecha y responsable")
+
+    return {
+        "score_14": int(round((avg1_3 - 1) * 6)),   # escala 0–6 desde 1–3 (simple)
+        "risk": "ALTO" if avg1_3 <= 1.5 else "MEDIO" if avg1_3 < 2.5 else "BAJO",
+        "strengths": strengths,
+        "opportunities": opps,
+        "coaching_3": [
+            "Define objetivo GROW claro",
+            "3 preguntas abiertas + parafraseo",
+            "2 acciones con fecha y revisión"
+        ],
+        "frase_guia": "¿Te parece acordar dos acciones con fecha y revisamos en 2 semanas?",
+        "kpis": [f"Avg 0–10: {avg0_10}", f"GROW 1–3: {avg1_3}"],
+        "rh_text": "Sesión GROW. Refuerza meta, realidad con preguntas y cierre con acciones/fecha.",
+        "user_text": "Clarifica meta, explora con 3 preguntas y cierra con 2 acciones con fecha."
+    }
 
 # ───────────────────────── LLM + Ensamble ─────────────────────────
 
@@ -180,6 +224,8 @@ def evaluate_interaction(manager_text: str, leo_text: str, video_path: Optional[
             "interaction_quality": quality_h,
             "kpis": {"avg_score": avg0_10, "avg_phase_score_1_3": avg1_3},
         }
+        # 👉 Compact para el admin
+        internal["compact"] = _build_compact(internal)
 
         public_block = textwrap.dedent(f"""
         {public_summary}
@@ -203,8 +249,12 @@ def evaluate_interaction(manager_text: str, leo_text: str, video_path: Optional[
             "interaction_quality": quality_h,
             "kpis": {"avg_score": avg0_10, "avg_phase_score_1_3": avg1_3},
         }
-        public = ("Buen esfuerzo. Usa GROW completo: aclara meta, explora realidad con 3 preguntas, "
-                  "co-crea opciones y cierra con 2 acciones con fecha.")
+        internal["compact"] = _build_compact(internal)
+
+        public = (
+            "Buen esfuerzo. Usa GROW completo: aclara meta, explora realidad con 3 preguntas, "
+            "co-crea opciones y cierra con 2 acciones con fecha."
+        )
         return {"public": public, "internal": internal, "level": "error"}
 
 # ───────────────────────── Persistencia ─────────────────────────
