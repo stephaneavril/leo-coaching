@@ -1,11 +1,9 @@
 # evaluator.py
 # -------------------------------------------------------------------
-# Analiza una sesión de coaching entre un gerente ↔ Jorge (avatar)
-# Devuelve:
-#   { "public": str, "internal": dict, "level": "alto" | "error" }
+# Coaching GROW para sesiones Gerente ↔ Avatar (representante de ventas)
+# Retorna: {"public": str, "internal": dict, "level": "alto"|"error"}
 # -------------------------------------------------------------------
-
-import os, json, textwrap, unicodedata
+import os, json, textwrap, unicodedata, re, difflib
 from typing import Optional, Dict
 from openai import OpenAI, OpenAIError
 from dotenv import load_dotenv
@@ -13,113 +11,226 @@ from dotenv import load_dotenv
 load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY", ""))
 
-# ────────────────────────────────────────────────────────────────────
-# Utilidad para normalizar textos
-# ────────────────────────────────────────────────────────────────────
+# ───────────────────────── Utils ─────────────────────────
+def _norm(txt: str) -> str:
+    if not txt: return ""
+    t = unicodedata.normalize("NFD", txt)
+    t = t.encode("ascii", "ignore").decode().lower()
+    t = re.sub(r"\s+", " ", t).strip()
+    return t
 
-def normalize(txt: str) -> str:
-    return unicodedata.normalize("NFD", txt).encode("ascii", "ignore").decode().lower()
+def _fuzzy(hay: str, needle: str, thr: float = 0.82) -> bool:
+    if not hay or not needle: return False
+    if needle in hay: return True
+    return difflib.SequenceMatcher(None, hay, needle).ratio() >= thr
 
-# ────────────────────────────────────────────────────────────────────
-# Evaluador principal
-# ────────────────────────────────────────────────────────────────────
+# ───────────────────────── Señales GROW ─────────────────────────
+GROW_SIGNALS = {
+    # G – Goal: claridad de meta/resultado de sesión, estilo SMART
+    "goal": {
+        "weight": 3,
+        "phrases": [
+            "objetivo de esta sesi", "que te gustaria obtener al final",
+            "meta", "objetivo smart", "que quieres lograr", "exito seria"
+        ],
+    },
+    # R – Reality: explorar situación actual, evidencias, emociones, obstáculos
+    "reality": {
+        "weight": 3,
+        "phrases": [
+            "situacion actual", "que sucede hoy", "que has intentado",
+            "que te inquieta", "que funciona", "que te detiene",
+            "como llegas con", "escucha activa", "parafrase"
+        ],
+    },
+    # O – Options: generar alternativas, brainstorm, pros/contras
+    "options": {
+        "weight": 2,
+        "phrases": [
+            "que opciones ves", "que otras alternativas", "que mas podrias",
+            "como lo podrias hacer", "que otra pregunta se te ocurre",
+            "que otra cosa", "romper el hielo", "sonreir", "storytelling"
+        ],
+    },
+    # W – Will/Way forward: plan de acción, fechas y compromisos
+    "will": {
+        "weight": 3,
+        "phrases": [
+            "que haras concretamente", "cuando lo haras", "como lo haras",
+            "siguiente paso", "plan de accion", "compromiso",
+            "en la proxima visita", "primer semana de"
+        ],
+    },
+}
 
+# Señales de habilidades del gerente-coach (ventas farma)
+COACH_SKILLS = {
+    "preguntas_abiertas": ["que", "como", "cual seria", "de que manera"],
+    "escucha_activa": ["entiendo", "si te escucho", "si te entiendo", "lo que dices", "parafrase"],
+    "retro_clara": ["te propongo", "enfocate en", "evita", "haz", "prueba"],
+    "empoderamiento": ["que prefieres", "que eliges", "que te funcionaria", "de quien depende"],
+    "conexion_emo": ["como te sientes", "que te hace sentir", "me encanta", "gracias por compartir"],
+    "guia_accion": ["cuando lo haras", "que harias", "primer paso", "fecha", "responsable"],
+}
+
+def _count_hits(txt: str, phrases):
+    nt = _norm(txt)
+    return sum(1 for p in phrases if _fuzzy(nt, _norm(p), 0.80))
+
+def _score_grow(manager: str):
+    nt = _norm(manager)
+    detail, total = {}, 0
+    for k, cfg in GROW_SIGNALS.items():
+        hits = _count_hits(nt, cfg["phrases"])
+        score = min(3, hits) * cfg["weight"]  # cap por sección
+        total += score
+        detail[k] = {"hits": hits, "weighted": score}
+    return detail, total
+
+def _score_skills(manager: str):
+    nt = _norm(manager)
+    out = {}
+    for skill, plist in COACH_SKILLS.items():
+        h = _count_hits(nt, plist)
+        out[skill] = "Excelente" if h >= 4 else "Bien" if h >= 2 else "Necesita Mejora"
+    return out
+
+def _quality_signals(manager: str):
+    t = manager or ""
+    tokens = len(_norm(t).split())
+    qmarks = t.count("?")
+    question_rate = round(qmarks / max(1, tokens) * 100, 2)
+    # Señales específicas del dominio de tus coachings (cierre por necesidades, sin “números” prematuros)
+    evita_num_cierre = _fuzzy(_norm(t), "evita numeros") or "¿cuántos" not in t.lower()
+    sonrisa = ("sonrie" in _norm(t)) or ("sonrisa" in _norm(t))
+    parafraseo = "parafrase" in _norm(t)
+    return {
+        "length_tokens": tokens,
+        "question_rate_pct": question_rate,
+        "evita_numeros_en_cierre": evita_num_cierre,   # coaching reciente
+        "menciona_sonrisa_o_pausa": sonrisa,           # apertura con sonrisa/pausa
+        "parafraseo_mencion": parafraseo,
+    }
+
+# ───────────────────────── Evaluador principal ─────────────────────────
 def evaluate_interaction(
     manager_text: str,
-    jorge_text: str,
-    video_path: Optional[str] = None  # se ignora por ahora
+    avatar_text: Optional[str] = None,
+    video_path: Optional[str] = None  # reservado por si luego integramos presencia no verbal
 ) -> Dict[str, object]:
     """
-    manager_text : diálogo del gerente
-    jorge_text   : diálogo del avatar Jorge (opcional, pero recomendado)
-    Devuelve:
-        - public: resumen visible para el gerente
-        - internal: dict detallado para Recursos Humanos
-        - level: "alto" | "error"
+    manager_text: diálogo del gerente (coach)
+    avatar_text: diálogo del avatar-representante (coachee)
     """
 
-    # ───────────── SYSTEM + FORMAT PROMPT para GPT ─────────────
-    SYSTEM_PROMPT = textwrap.dedent("""
-    Eres un evaluador experto en liderazgo y coaching farmacéutico.
+    # 1) Métricas objetivas GROW + habilidades
+    grow_detail, grow_total = _score_grow(manager_text)
+    skills = _score_skills(manager_text)
+    quality = _quality_signals(manager_text)
 
-    Recibirás una transcripción de una sesión de coaching entre un gerente de distrito (quien será evaluado) y Jorge, un representante médico de Alfasigma.
-
-    Evalúa el desempeño del gerente con base en su habilidad para:
-    - Hacer preguntas abiertas
-    - Escuchar activamente
-    - Dar retroalimentación clara
-    - Promover reflexión y empoderamiento
-
-    En la salida JSON:
-    - El campo "resumen_publico" debe ser un bloque útil y empático que combine diagnóstico, sugerencias concretas (en viñetas) y un objetivo claro para la próxima sesión.
-    - El campo "analisis_interno" debe resumir los hallazgos clave para Recursos Humanos.
+    # 2) Llamada a GPT para síntesis cualitativa y mapa GROW
+    SYSTEM = textwrap.dedent("""
+    Actúas como evaluador senior de coaching comercial (farmacéutico) usando el modelo GROW.
+    El gerente coachea a un REPRESENTANTE (avatar). Evalúa SOLO con el texto dado.
+    Enfatiza: meta clara de sesión (Goal), exploración realista (Reality), co-creación de opciones (Options),
+    y plan comprometido con fechas/seguimiento (Will). Observa habilidades: preguntas abiertas, escucha/parafraseo,
+    retroalimentación clara, empoderamiento, conexión emocional y guía hacia la acción.
+    Responde en JSON EXACTO con el FORMATO.
     """)
-
-    FORMAT_GUIDE = textwrap.dedent("""
+    FORMAT = textwrap.dedent("""
     {
-       "resumen_publico": "Escribe un resumen personalizado en español (máximo 120 palabras) dirigido al gerente evaluado. Incluye 1) diagnóstico claro de la interacción, 2) recomendaciones prácticas en viñetas y 3) un objetivo específico para la siguiente sesión. El tono debe ser empático, profesional y orientado al desarrollo.",
-        "analisis_interno": {
-            "resumen_general": "<2-3 frases con resumen general para RH>",
-            "habilidades_coaching": {
-                "escucha_activa": "Excelente | Bien | Necesita Mejora",
-                "preguntas_abiertas": "Excelente | Bien | Necesita Mejora",
-                "claridad_retroalimentacion": "Excelente | Bien | Necesita Mejora",
-                "empoderamiento_vs_instruccion": "Excelente | Bien | Necesita Mejora",
-                "conexion_emocional": "Excelente | Bien | Necesita Mejora",
-                "guia_hacia_la_accion": "Excelente | Bien | Necesita Mejora"
-        }
+      "resumen_publico": "<máx 120 palabras, empático, práctico>",
+      "analisis_interno": {
+        "GROW": {
+          "goal": "Excelente | Bien | Necesita Mejora",
+          "reality": "Excelente | Bien | Necesita Mejora",
+          "options": "Excelente | Bien | Necesita Mejora",
+          "will": "Excelente | Bien | Necesita Mejora"
+        },
+        "habilidades": {
+          "preguntas_abiertas": "Excelente | Bien | Necesita Mejora",
+          "escucha_activa": "Excelente | Bien | Necesita Mejora",
+          "retro_clara": "Excelente | Bien | Necesita Mejora",
+          "empoderamiento": "Excelente | Bien | Necesita Mejora",
+          "conexion_emocional": "Excelente | Bien | Necesita Mejora",
+          "guia_hacia_la_accion": "Excelente | Bien | Necesita Mejora"
+        },
+        "observaciones": "<2-3 frases objetivas sobre lo observado en la sesión>",
+        "siguientes_pasos_coaching": [
+          "<acción 1 concreta con fecha/criterio>",
+          "<acción 2>",
+          "<acción 3>"
+        ]
       }
     }
     """)
-
-    # Armar conversación de entrada
     convo = (
-        f"--- District Manager ---\n{manager_text}\n"
-        f"--- Jorge (avatar) ---\n{jorge_text or '(no avatar response provided)'}"
+        f"--- Gerente (coach) ---\n{manager_text}\n"
+        f"--- Avatar (representante) ---\n{avatar_text or '(sin texto del avatar)'}"
     )
 
-    # ───────────── Llamada a GPT ─────────────
     try:
         completion = client.chat.completions.create(
             model=os.getenv("OPENAI_GPT_MODEL", "gpt-4o-mini"),
             timeout=40,
             response_format={"type": "json_object"},
+            temperature=0.3,
             messages=[
-                {"role": "system", "content": SYSTEM_PROMPT + FORMAT_GUIDE},
+                {"role": "system", "content": SYSTEM + "\n\nFORMATO:\n" + FORMAT},
                 {"role": "user", "content": convo},
             ],
-            temperature=0.4,
         )
-        gpt_json = json.loads(completion.choices[0].message.content)
-        gpt_public = gpt_json.get("resumen_publico", "")
-        gpt_internal = gpt_json.get("analisis_interno", {})
+        j = json.loads(completion.choices[0].message.content)
+        public = j.get("resumen_publico", "")
+        internal_ai = j.get("analisis_interno", {})
         level = "alto"
     except (OpenAIError, json.JSONDecodeError, Exception) as e:
-        gpt_public = f"⚠️ GPT error: {e}"
-        gpt_internal = {"error": str(e)}
+        public = (
+            "Sesión recibida. Trabaja una meta clara (G), explora realidad con preguntas y parafraseo (R), "
+            "co-crea 2–3 opciones con pros/contras (O) y termina con plan SMART con fecha y responsable (W)."
+        )
+        internal_ai = {
+            "GROW": {k: "Necesita Mejora" for k in ["goal","reality","options","will"]},
+            "habilidades": {k: "Necesita Mejora" for k in [
+                "preguntas_abiertas","escucha_activa","retro_clara","empoderamiento","conexion_emocional","guia_hacia_la_accion"
+            ]},
+            "observaciones": f"Evaluación parcial por error del modelo: {e}",
+            "siguientes_pasos_coaching": [
+                "Define objetivo de sesión en una frase y criterio de éxito",
+                "Usa 3 preguntas abiertas para profundizar realidad",
+                "Cierra con 2 compromisos con fecha y forma de seguimiento"
+            ]
+        }
         level = "error"
 
-    # ───────────── Salida organizada ─────────────
-    def norm_keys(d: Dict[str, object]) -> Dict[str, object]:
-        return {normalize(k): v for k, v in d.items()}
+    # 3) Ensamble interno + compact
+    def _to_num(qual: str) -> int:
+        return {"Excelente": 3, "Bien": 2, "Necesita Mejora": 1}.get(qual, 1)
 
-    internal_summary = {
-        "overall_rh_summary": gpt_internal.get("resumen_general", ""),
-        "gpt_detailed_feedback": norm_keys(gpt_internal),
+    g = internal_ai.get("GROW", {})
+    grow_avg_1_3 = round(sum(_to_num(g.get(k, "Necesita Mejora")) for k in ["goal","reality","options","will"]) / 4.0, 2)
+    score_comp = {
+        "grow_detail_hits": grow_detail,
+        "grow_weighted_total": grow_total,  # referencia objetiva por frases
+        "skills_map": skills,
+        "quality": quality,
+        "grow_avg_1_3": grow_avg_1_3,
     }
 
+    # Bloque público (añado recordatorios pro-calibración con tus sesiones)
     public_block = textwrap.dedent(f"""
-        {gpt_public}
+        {public}
 
-        Recomendaciones generales:
-        • Escucha activa, no interrumpas prematuramente.
-        • Formula preguntas abiertas y específicas.
-        • Ofrece retroalimentación clara, no solo genérica.
-        • Promueve reflexión y empoderamiento, no solo instrucciones.
+        Enfoque GROW:
+        • G: inicia con meta explícita y criterio de éxito de la sesión.
+        • R: profundiza con 3 preguntas abiertas + parafraseo.
+        • O: co-crea 2 opciones viables (evita ir a números para el cierre temprano).
+        • W: acuerda 2 acciones con fecha y seguimiento (¿cuándo y cómo revisarás?).
     """).strip()
 
-    return {
-        "public": public_block,
-        "internal": internal_summary,
-        "level": level
+    internal = {
+        "gpt": internal_ai,
+        "scores": score_comp,
     }
+
+    return {"public": public_block, "internal": internal, "level": level}

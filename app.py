@@ -733,6 +733,52 @@ def validate_user_endpoint():
     finally:
         if conn:
             conn.close()
+# Acepta GET y POST para evitar 405 / “Internal Server Error” si alguien abre el link directo
+@app.route("/admin/recompute/<int:session_id>", methods=["GET", "POST"])
+def admin_recompute(session_id: int):
+    user_t, leo_t = "", ""
+
+    # 1) obtener textos de la sesión
+    try:
+        conn = _db_conn()
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT message, response
+                FROM interactions
+                WHERE id = %s
+                """,
+                (session_id,),
+            )
+            row = cur.fetchone()
+        conn.close()
+        if not row:
+            print(f"[recompute] sesión {session_id} no encontrada")
+            return redirect("/admin")
+
+        # ⚠️ IMPORTANTE: message/response están guardados como JSON (listas de strings)
+        try:
+            user_msgs = json.loads(row[0]) if row[0] else []
+            leo_msgs  = json.loads(row[1]) if row[1] else []
+        except Exception:
+            user_msgs, leo_msgs = [row[0] or ""], [row[1] or ""]
+
+        user_t = "\n".join(user_msgs)
+        leo_t  = "\n".join(leo_msgs)
+
+    except Exception as e:
+        print(f"[recompute] error leyendo BD: {e}")
+        return redirect("/admin")
+
+    # 2) re-evaluar y persistir (genera/actualiza internal.compact)
+    try:
+        evaluate_and_persist(session_id, user_t, leo_t, video_path=None)
+        print(f"[recompute] sesión {session_id} evaluada OK")
+    except Exception as e:
+        print(f"[recompute] error evaluando sesión {session_id}: {e}")
+
+    # 3) volver al panel
+    return redirect("/admin")
 
 # ─────────────────────────────────────────────────────────
 #  DASHBOARD DATA  –  Devuelve las sesiones del usuario

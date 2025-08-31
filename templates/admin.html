@@ -2,642 +2,390 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Panel de RH – Evaluación de Sesiones</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+  <title>Panel de Capacitación – LEO Coaching (GROW)</title>
 
-  <!-- Tipografías corporativas -->
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link
-    href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&family=Open+Sans:wght@400;600&display=swap"
-    rel="stylesheet"
-  />
+  <!-- Tipografías -->
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&family=Open+Sans:wght@400;600&display=swap" rel="stylesheet"/>
 
   <style>
-    /* ---------- PALETA Y VARIABLES ---------- */
-    :root {
-      --primary-dark: #0c0e2c;
-      --primary-mid: #003559;
-      --primary-light: #00bfff;
-      --secondary-red: #cc0000;
-      --text-dark: #222;
-      --text-light: #e6e8ef;
-      --bg-gray: #f4f6fa;
-      --bg-white: #ffffff;
-      --border: #e0e0e0;
-      --shadow-lg: rgba(0, 0, 0, 0.3);
-      --shadow-sm: rgba(0, 0, 0, 0.05);
+    :root{
+      --primary-dark:#0c0e2c; --primary-mid:#003559; --primary-light:#00bfff;
+      --secondary-red:#cc0000; --ok:#0ea5e9; --warn:#f59e0b; --bad:#ef4444;
+      --text-dark:#222; --text-light:#e6e8ef; --bg-gray:#f4f6fa; --bg-white:#fff;
+      --border:#e0e0e0; --shadow-lg:rgba(0,0,0,.3); --shadow-sm:rgba(0,0,0,.05);
     }
+    *{box-sizing:border-box;margin:0;padding:0}
+    html{scroll-behavior:smooth}
+    body{font-family:'Open Sans',sans-serif;line-height:1.55;background:var(--primary-dark);color:var(--text-light)}
+    a{color:var(--primary-light);text-decoration:none}
 
-    /* ---------- RESET ---------- */
-    *,
-    *::before,
-    *::after {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
-    html {
-      scroll-behavior: smooth;
-    }
-    body {
-      font-family: 'Open Sans', sans-serif;
-      line-height: 1.55;
-      background: var(--primary-dark);
-      color: var(--text-light);
-    }
-    a {
-      color: var(--primary-light);
-      text-decoration: none;
-    }
+    header{display:flex;align-items:center;gap:16px;padding:16px 32px;
+      background:linear-gradient(90deg,var(--primary-dark)0%,var(--primary-mid)50%,var(--primary-light)100%);
+      box-shadow:0 2px 6px rgba(0,0,0,.45)}
+    header h1{font:700 28px 'Montserrat',sans-serif;color:#fff}
 
-    /* ---------- HEADER ---------- */
-    header {
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      padding: 16px 32px;
-      background: linear-gradient(
-        90deg,
-        var(--primary-dark) 0%,
-        var(--primary-mid) 50%,
-        var(--primary-light) 100%
-      );
-      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
-    }
-    header img {
-      height: 48px;
-    }
-    header h1 {
-      font-family: 'Montserrat', sans-serif;
-      font-weight: 700;
-      font-size: 28px;
-      color: #fff;
-    }
+    .container{max-width:1200px;margin:0 auto;padding:40px 32px}
+    .section-title{font:600 24px 'Montserrat',sans-serif;margin:40px 0 24px;border-bottom:2px solid var(--primary-light);padding-bottom:10px}
 
-    /* ---------- LAYOUT ---------- */
-    .container {
-      max-width: 1200px;
-      margin: 0 auto;
-      padding: 40px 32px;
-    }
+    .flash-wrap{margin-top:16px}
+    .flash{padding:10px 14px;border-radius:8px;margin-bottom:8px;font-weight:600}
+    .flash.success{background:#e6fffa;color:#03543f;border-left:4px solid #0e9f6e}
+    .flash.error{background:#fff5f5;color:#9b1c1c;border-left:4px solid #c81e1e}
 
-    .section-title {
-      font: 600 24px 'Montserrat', sans-serif;
-      margin: 40px 0 24px;
-      border-bottom: 2px solid var(--primary-light);
-      padding-bottom: 10px;
-    }
+    .session-entry{background:var(--bg-white);color:var(--text-dark);border-radius:16px;box-shadow:0 8px 24px var(--shadow-lg);
+      padding:24px;margin-bottom:40px;display:grid;grid-template-columns:1fr;gap:24px}
+    @media(min-width:1024px){.session-entry{grid-template-columns:1fr 380px}}
+    .session-entry h3{font:600 20px 'Montserrat',sans-serif;color:var(--primary-dark);margin-bottom:12px;border-bottom:1px solid #eee;padding-bottom:8px}
+    .session-info strong{color:#555}
 
-    /* ---------- SESSION ENTRY ---------- */
-    .session-entry {
-      background: var(--bg-white);
-      color: var(--text-dark);
-      border-radius: 16px;
-      box-shadow: 0 8px 24px var(--shadow-lg);
-      padding: 24px;
-      margin-bottom: 40px;
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 24px;
-    }
-    @media (min-width: 1024px) {
-      .session-entry {
-        grid-template-columns: 1fr 380px;
-      }
-    }
-    .session-entry h3 {
-      font: 600 20px 'Montserrat', sans-serif;
-      color: var(--primary-dark);
-      margin-bottom: 12px;
-      border-bottom: 1px solid #eee;
-      padding-bottom: 8px;
-    }
-    .session-info strong {
-      color: #555;
-    }
+    video{width:100%;border:1px solid var(--primary-light);border-radius:12px;object-fit:cover;box-shadow:0 4px 10px rgba(0,0,0,.15)}
 
-    /* ---------- VIDEO ---------- */
-    video {
-      width: 100%;
-      border: 1px solid var(--primary-light);
-      border-radius: 12px;
-      object-fit: cover;
-      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
-    }
+    .chip{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:5px 10px;font:600 12px/1 'Montserrat';border:1px solid #e5e7eb;background:#f8fafc;color:#111}
+    .chip .dot{width:8px;height:8px;border-radius:50%}
+    .chip.ok .dot{background:#0ea5e9}
+    .chip.warn .dot{background:#f59e0b}
+    .chip.bad .dot{background:#ef4444}
 
-    /* ---------- CHAT ---------- */
-    .chat-log ul {
-      list-style: none;
-      padding: 0;
-      margin: 0;
-    }
-    .chat-log li {
-      display: flex;
-      margin-bottom: 12px;
-    }
-    .bubble {
-      padding: 10px 14px;
-      border-radius: 12px;
-      font-size: 15px;
-      max-width: 100%;
-    }
-    .user .bubble {
-      background: rgba(128, 90, 213, 0.15);
-      border-left: 6px solid #805ad5;
-    }
-    .doctor .bubble {
-      background: rgba(0, 191, 255, 0.15);
-      border-left: 6px solid var(--primary-light);
-    }
+    .grid{display:grid;gap:10px}
+    .grid-2{grid-template-columns:1fr 1fr}
+    .grid-3{grid-template-columns:repeat(3,1fr)}
+    @media(max-width:720px){.grid-2,.grid-3{grid-template-columns:1fr}}
 
-    /* ---------- EVALUACIONES ---------- */
-    .evaluation {
-      margin-top: 20px;
-      padding: 15px;
-      border-radius: 8px;
-      background: #e0f7fa;
-      border-left: 5px solid #0099cc;
-      color: var(--text-dark);
-    }
-    .evaluation.rh {
-      background: #ffeeee;
-      border-left-color: var(--secondary-red);
-    }
-    .evaluation.rh h4 {
-      color: var(--secondary-red);
-      margin: 15px 0 5px;
-      font: 600 1em 'Montserrat';
-    }
+    .card{background:#f7fbff;border:1px solid #e6f1ff;border-radius:12px;padding:14px}
+    .card h4{font:600 14px 'Montserrat';margin-bottom:8px;color:#0d2a45}
 
-    .metric-line {
-      display: flex;
-      justify-content: space-between;
-      padding: 5px 0;
-      border-bottom: 1px dashed #f0c0c0;
-      font-size: 0.95em;
-    }
-    .metric-line:last-child {
-      border-bottom: none;
-    }
+    .chat-log ul{list-style:none}
+    .chat-log li{display:flex;margin-bottom:12px}
+    .bubble{padding:10px 14px;border-radius:12px;font-size:15px;max-width:100%}
+    .mgr .bubble{background:rgba(128,90,213,.15);border-left:6px solid #805ad5}
+    .leo .bubble{background:rgba(0,191,255,.15);border-left:6px solid var(--primary-light)}
 
-    /* ---------- TABLAS ---------- */
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 20px;
-    }
-    th,
-    td {
-      padding: 12px 8px;
-      font-size: 14px;
-    }
-    th {
-      background: #f8f8f8;
-      color: var(--primary-dark);
-      font: 600 0.8rem 'Montserrat';
-      text-transform: uppercase;
-    }
-    tr:nth-child(even) {
-      background: #fdfdfd;
-    }
-    tr:hover {
-      background: #f0f8ff;
-    }
+    .evaluation{margin-top:16px;padding:15px;border-radius:8px;background:#e0f7fa;border-left:5px solid #0099cc;color:var(--text-dark)}
+    .evaluation.rh{background:#ffeeee;border-left-color:var(--secondary-red)}
+    .evaluation.rh h4{color:var(--secondary-red);margin:10px 0 6px;font:600 1em 'Montserrat'}
 
-    /* ---------- PROGRESS ---------- */
-    .progress-bar {
-      background: #e9ecef;
-      border-radius: 8px;
-      overflow: hidden;
-      height: 25px;
-      margin-top: 15px;
-      border: 1px solid #dee2e6;
-    }
-    .progress-fill {
-      height: 100%;
-      background: linear-gradient(to right, #00bfff, #007bff);
-      display: flex;
-      align-items: center;
-      justify-content: flex-end;
-      padding-right: 10px;
-      color: #fff;
-      font-weight: bold;
-      font-size: 0.9em;
-      transition: width 0.4s ease-out;
-    }
+    table{width:100%;border-collapse:collapse;margin-top:10px}
+    th,td{padding:10px 8px;font-size:14px}
+    th{background:#f8f8f8;color:var(--primary-dark);font:600 .8rem 'Montserrat';text-transform:uppercase}
+    tr:nth-child(even){background:#fdfdfd}
+    tr:hover{background:#f0f8ff}
 
-    /* ---------- FORMULARIOS / BOTONES ---------- */
-    form {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      margin-top: 15px;
-      align-items: end;
-    }
-    label {
-      font-weight: 600;
-      color: #555;
-    }
-    input[type='text'],
-    input[type='email'],
-    input[type='date'],
-    textarea {
-      flex: 1;
-      min-width: 150px;
-      padding: 10px 12px;
-      border-radius: 6px;
-      border: 1px solid #ccc;
-      box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.05);
-      transition: border-color 0.2s ease;
-      font-family: inherit;
-      font-size: 14px;
-    }
-    input:focus,
-    textarea:focus {
-      border-color: var(--primary-light);
-      outline: none;
-    }
-    button {
-      padding: 10px 18px;
-      border: none;
-      border-radius: 6px;
-      background: var(--primary-light);
-      color: #000;
-      font-weight: 600;
-      font-size: 15px;
-      cursor: pointer;
-      transition: background 0.2s ease, transform 0.1s ease;
-      white-space: nowrap;
-    }
-    button:hover {
-      background: #009acd;
-      transform: translateY(-1px);
-    }
-    button:active {
-      transform: translateY(0);
-    }
-    .user-management-actions button[name='toggle'] {
-      background: #ffc107;
-      color: var(--text-dark);
-    }
-    .user-management-actions button[name='toggle']:hover {
-      background: #e0a800;
-    }
-    .user-management-actions button[name='regen_token'] {
-      background: #6c757d;
-    }
-    .user-management-actions button[name='regen_token']:hover {
-      background: #5a6268;
-    }
+    .progress-bar{background:#e9ecef;border-radius:8px;overflow:hidden;height:25px;margin-top:15px;border:1px solid #dee2e6}
+    .progress-fill{height:100%;background:linear-gradient(to right,#00bfff,#007bff);display:flex;align-items:center;justify-content:flex-end;padding-right:10px;color:#fff;font-weight:700;font-size:.9em;transition:width .4s ease-out}
 
-    /* ---------- FOOTER ---------- */
-    footer {
-      text-align: center;
-      padding: 32px;
-      margin-top: 50px;
-      font-size: 0.9em;
-      color: #777;
-      background: var(--bg-white);
-    }
-    footer a {
-      color: var(--primary-light);
-      font-weight: 600;
-    }
+    form{display:flex;flex-wrap:wrap;gap:10px;margin-top:15px;align-items:end}
+    label{font-weight:600;color:#555}
+    input[type='text'],input[type='email'],input[type='date'],textarea{
+      flex:1;min-width:150px;padding:10px 12px;border-radius:6px;border:1px solid #ccc;
+      box-shadow:inset 0 1px 3px rgba(0,0,0,.05);transition:border-color .2s ease;font-family:inherit;font-size:14px}
+    input:focus,textarea:focus{border-color:var(--primary-light);outline:none}
+    button{padding:10px 18px;border:none;border-radius:6px;background:var(--primary-light);color:#000;font-weight:600;font-size:15px;cursor:pointer;transition:background .2s ease,transform .1s ease;white-space:nowrap}
+    button:hover{background:#009acd;transform:translateY(-1px)}
+    button:active{transform:translateY(0)}
+    .btn-ghost{background:#6c757d;color:#fff}
+    .btn-ghost:hover{background:#5a6268}
+    .user-management-actions button[name='toggle']{background:#ffc107;color:var(--text-dark)}
+    .user-management-actions button[name='toggle']:hover{background:#e0a800}
+    .user-management-actions button[name='regen_token']{background:#6c757d}
+    .user-management-actions button[name='regen_token']:hover{background:#5a6268}
+
+    footer{text-align:center;padding:32px;margin-top:50px;font-size:.9em;color:#777;background:var(--bg-white)}
+    footer a{color:var(--primary-light);font-weight:600}
   </style>
 </head>
-
 <body>
-  <!-- ===== HEADER ===== -->
   <header>
-   
-    <h1>📊 Panel de RH – Evaluación de Sesiones</h1>
+    <h1>📊 Panel de Capacitación – LEO Coaching (GROW)</h1>
   </header>
 
   <div class="container">
-    <!-- ===== SESIONES ===== -->
-    <h2 class="section-title">Resultados de Sesiones Individuales</h2>
-<div style="margin-bottom: 30px;">
-  <a href="/admin/gerentes" style="
-      display: inline-block;
-      background-color: #00bfff;
-      color: #000;
-      padding: 10px 20px;
-      font-weight: bold;
-      border-radius: 6px;
-      text-decoration: none;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-    ">
-    📊 Ver Dashboard por Gerente
-  </a>
-</div>
+    <!-- Flash -->
+    {% with msgs = get_flashed_messages(with_categories=true) %}
+    {% if msgs %}
+      <div class="flash-wrap">
+        {% for cat,m in msgs %}<div class="flash {{cat}}">{{ m }}</div>{% endfor %}
+      </div>
+    {% endif %}
+    {% endwith %}
 
+    <!-- ===== Sesiones ===== -->
+    <h2 class="section-title">Resultados de Sesiones Individuales</h2>
 
     {% for row in data %}
+    {# row indices:
+        0:id, 1:nombre, 2:email, 3:escenario, 4:chat_user(list), 5:chat_leo(list),
+        6:video_url, 7:fecha, 8:public_summary(str), 9:internal(dict), 12:published(bool)
+    #}
+    {% set internal = row[9] %}
+    {% set compact  = internal.compact if internal and internal.compact is defined else None %}
+    {% set grow     = internal.grow_eval if internal and internal.grow_eval is defined else None %}
+    {% set iq       = internal.interaction_quality if internal and internal.interaction_quality is defined else None %}
+    {% set kpis     = internal.kpis if internal and internal.kpis is defined else None %}
+    {% set fb       = internal.gpt_detailed_feedback if internal and internal.gpt_detailed_feedback is defined else None %}
+    {% set habilidades = fb.habilidades if fb and fb.habilidades is defined else None %}
+
     <div class="session-entry">
-      <!-- ──────── COLUMNA A ──────── -->
+
+      <!-- Columna A -->
       <div>
         <h3>
-          {{ row[1] }}
-          <span style="font-weight: normal; color: #777">({{ row[2] }})</span>
+          {{ row[1] }} <span style="font-weight:normal;color:#777">({{ row[2] }})</span>
         </h3>
         <p class="session-info">
-          <strong>Escenario:</strong> {{ row[3] }}<br />
+          <strong>Escenario:</strong> {{ row[3] }}<br/>
           <strong>Fecha:</strong> {{ row[7] }}
         </p>
 
-        <!-- CHAT intercalado -->
+        <!-- Chat intercalado -->
         <div class="chat-log">
-          {% set u = row[4] %} {% set d = row[5] %} {% set max_len =
-          [u|length, d|length] | max %}
+          {% set u = row[4] or [] %}{% set d = row[5] or [] %}{% set max_len = [u|length, d|length] | max %}
           <ul>
             {% for i in range(max_len) %}
-            {% if u[i] is defined and u[i] | trim %}
-            <li class="user"><span class="bubble">{{ u[i] | trim }}</span></li>
-            {% endif %} {% if d[i] is defined and d[i] | trim %}
-            <li class="doctor">
-              <span class="bubble">{{ d[i] | trim }}</span>
-            </li>
-            {% endif %} {% endfor %}
+              {% if u[i] is defined and u[i]|trim %}
+                <li class="mgr"><span class="bubble">{{ u[i]|trim }}</span></li>
+              {% endif %}
+              {% if d[i] is defined and d[i]|trim %}
+                <li class="leo"><span class="bubble">{{ d[i]|trim }}</span></li>
+              {% endif %}
+            {% endfor %}
           </ul>
         </div>
 
         <!-- Resumen visible al usuario -->
         <div class="evaluation">
-          <strong>Resumen para usuario:</strong><br />{{ row[8] }}
+          <strong>Resumen para usuario:</strong><br/>{{ row[8] }}
         </div>
 
-        <!-- Análisis RH -->
-{% if row[9].overall_rh_summary %}
-  <div class="evaluation rh">
-    <strong>Análisis para RH:</strong>
-    <p><strong>Resumen General RH:</strong> {{ row[9].overall_rh_summary }}</p>
+        <!-- ===== Compacto RH (si existe) ===== -->
+        {% if compact %}
+          <div class="evaluation rh">
+            <strong>Análisis para Capacitación (Compacto):</strong>
 
-    {# --- ALIAS A LOS FEEDBACKS DE GPT --- #}
-    {% set fb = row[9].gpt_detailed_feedback %}
+            <p style="margin-top:6px">
+              <strong>{{ row[1] or 'Participante' }}</strong>
+              <span style="color:#666">
+                · Sesión: {{ row[7] or 'N/D' }}
+                · <strong>Score:</strong> {{ compact.score_14 }}/14
+                · <strong>Riesgo:</strong> {{ compact.risk }}
+              </span>
+            </p>
 
-    <h4>🧠 Evaluación de Habilidades de Coaching</h4>
-{% set habilidades = fb.habilidades_coaching if fb and fb.habilidades_coaching is defined else None %}
-<div class="metric-line"><span>Escucha Activa:</span><span>{{ habilidades.escucha_activa if habilidades else 'N/A' }}</span></div>
-<div class="metric-line"><span>Preguntas Abiertas:</span><span>{{ habilidades.preguntas_abiertas if habilidades else 'N/A' }}</span></div>
-<div class="metric-line"><span>Claridad de Retroalimentación:</span><span>{{ habilidades.claridad_retroalimentacion if habilidades else 'N/A' }}</span></div>
-<div class="metric-line"><span>Empoderamiento vs Instrucción:</span><span>{{ habilidades.empoderamiento_vs_instruccion if habilidades else 'N/A' }}</span></div>
-<div class="metric-line"><span>Conexión Emocional:</span><span>{{ habilidades.conexion_emocional if habilidades else 'N/A' }}</span></div>
-<div class="metric-line"><span>Guía hacia la Acción:</span><span>{{ habilidades.guia_hacia_la_accion if habilidades else 'N/A' }}</span></div>
+            <p style="margin-top:10px"><strong>Fortalezas:</strong>
+              {{ (compact.strengths or []) | join('; ') or '—' }}</p>
 
+            <p><strong>Oportunidades:</strong>
+              {{ (compact.opportunities or []) | join('; ') or '—' }}</p>
 
-          <h4 style="margin-top: 15px">🧠 Conocimientos y Habilidades</h4>
-          <div class="metric-line">
-            <span>Palabras clave científicas:</span
-            ><span>{{ row[9].knowledge_score or 'N/A' }}</span>
+            <p><strong>Coaching (3):</strong>
+              {{ (compact.coaching_3 or []) | join('; ') or '—' }}</p>
+
+            {% if compact.frase_guia %}
+              <p><strong>Frase guía:</strong> <em>{{ compact.frase_guia }}</em></p>
+            {% endif %}
+
+            <p><strong>KPI:</strong>
+              {{ (compact.kpis or []) | join('; ') or '—' }}</p>
+
+            <div style="display:flex;gap:8px;margin-top:10px">
+              <button type="button" onclick="navigator.clipboard.writeText({{ (compact.rh_text or '') | tojson }})">
+                Copiar texto RH
+              </button>
+              <button type="button" onclick="navigator.clipboard.writeText({{ (compact.user_text or row[8] or '') | tojson }})">
+                Copiar resumen usuario
+              </button>
+            </div>
           </div>
-          <div class="metric-line">
-            <span>Escucha Activa (simple):</span
-            ><span>{{ row[9].active_listening_simple_detection or 'N/A' }}</span>
+        {% else %}
+          <div class="evaluation rh">
+            <strong>Análisis para Capacitación:</strong>
+            <p style="margin:8px 0 0">Formato compacto no disponible para esta sesión.</p>
           </div>
-          <div class="metric-line">
-            <span>Presencia en video:</span
-            ><span
-              >{{ row[9].visual_presence or 'N/A' }} ({{
-              row[9].visual_percentage or 'N/A' }})</span
-            >
-          </div>
-
-          {% if fb and fb.overall_evaluation %}
-          <h4 style="margin-top: 15px">Comentarios Detallados</h4>
-          <p><strong>Evaluación general:</strong> {{ fb.overall_evaluation }}</p>
-          {% if fb.Areas_de_mejora %}
-          <p><strong>Áreas de Mejora:</strong></p>
-          <ul>
-            {% for area in fb.Areas_de_mejora %}
-            <li>{{ area }}</li>
-            {% endfor %}
-          </ul>
-          {% endif %} {% endif %}
-        </div>
         {% endif %}
 
-        <!-- Eliminar sesión -->
-        <div style="margin-top: 20px; text-align: right">
-          <form
-            action="/admin/delete_session/{{ row[0] }}"
-            method="POST"
-            onsubmit="return confirm('¿Estás seguro de eliminar esta sesión?');"
-          >
-            <button
-              type="submit"
-              style="background: #dc3545; color: #fff; padding: 8px 15px; border-radius: 5px"
-            >
-              🗑️ Eliminar Sesión
-            </button>
-          </form>
+        <!-- ===== Detalle GROW + Habilidades ===== -->
+        <div class="grid grid-2" style="margin-top:14px">
+          <div class="card">
+            <h4>🧭 GROW (semáforos)</h4>
+            {% if grow %}
+              <div class="grid grid-2">
+                {% set m = {'Excelente':'ok','Bien':'warn','Necesita Mejora':'bad'} %}
+                <span class="chip {{ m.get(grow.goal,'warn') }}"><span class="dot"></span>Goal: {{ grow.goal }}</span>
+                <span class="chip {{ m.get(grow.reality,'warn') }}"><span class="dot"></span>Reality: {{ grow.reality }}</span>
+                <span class="chip {{ m.get(grow.options,'warn') }}"><span class="dot"></span>Options: {{ grow.options }}</span>
+                <span class="chip {{ m.get(grow.will,'warn') }}"><span class="dot"></span>Will: {{ grow.will }}</span>
+              </div>
+            {% else %}
+              <em>No hay evaluación GROW disponible.</em>
+            {% endif %}
+          </div>
+
+          <div class="card">
+            <h4>🧠 Habilidades de Coaching</h4>
+            {% if habilidades %}
+              <table>
+                <tr><th>Habilidad</th><th>Valoración</th></tr>
+                <tr><td>Preguntas abiertas</td><td>{{ habilidades.preguntas_abiertas }}</td></tr>
+                <tr><td>Escucha activa</td><td>{{ habilidades.escucha_activa }}</td></tr>
+                <tr><td>Retro clara</td><td>{{ habilidades.retro_clara }}</td></tr>
+                <tr><td>Empoderamiento</td><td>{{ habilidades.empoderamiento }}</td></tr>
+                <tr><td>Conexión emocional</td><td>{{ habilidades.conexion_emocional }}</td></tr>
+                <tr><td>Guía hacia la acción</td><td>{{ habilidades.guia_hacia_la_accion }}</td></tr>
+              </table>
+            {% else %}
+              <em>Sin mapa de habilidades (GPT).</em>
+            {% endif %}
+          </div>
         </div>
+
+        <div class="grid grid-2" style="margin-top:10px">
+          <div class="card">
+            <h4>📏 KPIs</h4>
+            {% if kpis %}
+              <div><strong>Avg score (0–10):</strong> {{ kpis.avg_score }}</div>
+              <div><strong>Promedio GROW (1–3):</strong> {{ kpis.avg_phase_score_1_3 }}</div>
+            {% else %}
+              <em>Sin KPIs.</em>
+            {% endif %}
+          </div>
+
+          <div class="card">
+            <h4>🔎 Calidad de interacción</h4>
+            {% if iq %}
+              <div><strong>Tokens:</strong> {{ iq.length_tokens }}</div>
+              <div><strong>¿?:</strong> {{ iq.question_marks }}</div>
+              <div><strong>Preguntas abiertas (0–3):</strong> {{ iq.open_questions_score }}</div>
+              <div><strong>Escucha:</strong> {{ iq.listening_level }}</div>
+              <div><strong>Empoderamiento:</strong> {{ iq.empowerment_level }}</div>
+              <div><strong>Feedback:</strong> {{ iq.feedback_level }}</div>
+              <div><strong>Seguimiento presente:</strong> {{ 'Sí' if iq.followup_present else 'No' }}</div>
+            {% else %}
+              <em>Sin señales de interacción.</em>
+            {% endif %}
+          </div>
+        </div>
+
+        <!-- Botón Recalcular -->
+        <form action="/admin/recompute/{{ row[0] }}" method="POST" style="margin-top:10px">
+          <button type="submit" class="btn-ghost">🔁 Recalcular análisis</button>
+        </form>
       </div>
 
-      <!-- ──────── COLUMNA B ──────── -->
+      <!-- Columna B -->
       <div>
-        <!-- Video -->
-        {% if row[6] and row[6] not in [
-        'Video_Not_Available_Error','Video_Processing_Failed','Video_Missing_Error'] %}
-        <video controls>
-          <source src="{{ row[6] }}" type="video/mp4" />
-          Tu navegador no soporta video.
-        </video>
+        {% if row[6] and row[6] not in ['Video_Not_Available_Error','Video_Processing_Failed','Video_Missing_Error'] %}
+          <video controls><source src="{{ row[6] }}" type="video/mp4"/>Tu navegador no soporta video.</video>
         {% else %}
-        <p style="color: gray; text-align: center; margin-bottom: 16px">
-          ⏳ Video en procesamiento o no disponible
-        </p>
+          <p style="color:gray;text-align:center;margin-bottom:16px">⏳ Video en procesamiento o no disponible</p>
         {% endif %}
 
         <!-- Comentario RH + publicar -->
-        <form
-          action="/admin/publish_eval/{{ row[0] }}"
-          method="POST"
-          style="margin-top: 20px"
-        >
-          <label for="comment_{{ row[0] }}"><strong>Comentario RH:</strong></label
-          ><br />
-          <textarea
-            id="comment_{{ row[0] }}"
-            name="comment_rh"
-            rows="4"
-            style="width: 100%; margin-top: 6px"
-            placeholder="Escribe tu feedback…"
-          ></textarea>
+        <form action="/admin/publish_eval/{{ row[0] }}" method="POST" style="margin-top:20px">
+          <label for="comment_{{ row[0] }}"><strong>Comentario de Capacitación:</strong></label><br/>
+          <textarea id="comment_{{ row[0] }}" name="comment_rh" rows="4" style="width:100%;margin-top:6px" placeholder="Escribe tu feedback…"></textarea>
 
           {% if not row[12] %}
-          <button type="submit" style="margin-top: 10px; width: 100%">
-            ✅ Publicar al usuario
-          </button>
-
-          <!-- Botón alternativo: publicar IA tal cual -->
-          <form
-            action="/admin/publish_ai/{{ row[0] }}"
-            method="POST"
-            style="margin-top: 10px"
-          >
-            <button
-              type="submit"
-              style="width: 100%; background: #00bfff; color: #000"
-            >
-              🤖 Publicar análisis IA tal cual
-            </button>
-          </form>
+            <button type="submit" style="margin-top:10px;width:100%">✅ Publicar al usuario</button>
+            <button type="submit" formaction="/admin/publish_ai/{{ row[0] }}" formmethod="POST" style="margin-top:10px;width:100%;background:#00bfff;color:#000">🤖 Publicar análisis IA tal cual</button>
           {% else %}
-          <p
-            style="
-              color: green;
-              font-weight: 600;
-              margin-top: 12px;
-              text-align: center;
-            "
-          >
-            Publicado en dashboard
-          </p>
+            <p style="color:green;font-weight:600;margin-top:12px;text-align:center">Publicado en dashboard</p>
           {% endif %}
         </form>
       </div>
     </div>
     {% endfor %}
 
-    <!-- ===== RESUMEN DE USO ===== -->
+    <!-- ===== Resumen de uso ===== -->
     <h2 class="section-title">📈 Resumen de Tiempo por Usuario</h2>
     <div class="summary-row">
       <table>
-        <tr>
-          <th>Nombre</th>
-          <th>Email</th>
-          <th>Minutos usados</th>
-          <th>Resumen ejecutivo</th>
-        </tr>
+        <tr><th>Nombre</th><th>Email</th><th>Minutos usados</th><th>Resumen ejecutivo</th></tr>
         {% for summary in usage_summaries %}
-        <tr>
-          <td>{{ summary.name }}</td>
-          <td>{{ summary.email }}</td>
-          <td>{{ summary.minutes }}</td>
-          <td>{{ summary.summary }}</td>
-        </tr>
+          <tr><td>{{ summary.name }}</td><td>{{ summary.email }}</td><td>{{ summary.minutes }}</td><td>{{ summary.summary }}</td></tr>
         {% endfor %}
       </table>
 
-      <h3 style="margin-top: 20px">
-        Tiempo Total Usado: {{ total_minutes }} / 1050 min
-      </h3>
+      <h3 style="margin-top:20px">Tiempo Total Usado: {{ total_minutes }} / {{ contracted_minutes }} min</h3>
       <div class="progress-bar">
-        <div
-          class="progress-fill"
-          style="width: {{ (total_minutes / 1050) * 100 }}%"
-        >
-          <span>{{ (total_minutes / 1050) * 100 | round(1) }}%</span>
+        <div class="progress-fill" style="width: {{ (total_minutes / contracted_minutes) * 100 }}%">
+          <span>{{ (total_minutes / contracted_minutes) * 100 | round(1) }}%</span>
         </div>
       </div>
     </div>
 
-    <!-- ===== GESTIÓN DE USUARIOS ===== -->
+    <!-- ===== Resumen desempeño ===== -->
+    <h2 class="section-title">⭐ Resumen de Desempeño por Usuario</h2>
+    <div class="summary-row">
+      <table>
+        <tr><th>Nombre</th><th>Email</th><th>Sesiones consideradas</th><th>Alertas</th><th>Última sesión</th></tr>
+        {% if performance_summaries and performance_summaries|length > 0 %}
+          {% for p in performance_summaries %}
+            <tr><td>{{ p.name }}</td><td>{{ p.email }}</td><td>{{ p.sessions_published }}</td><td>{{ p.red_flags }}</td><td>{{ p.last_date }}</td></tr>
+          {% endfor %}
+        {% else %}
+          <tr><td colspan="5" style="text-align:center;color:#777">Sin datos aún</td></tr>
+        {% endif %}
+      </table>
+    </div>
+
+    <!-- ===== Gestión de usuarios ===== -->
     <h2 class="section-title">🔐 Gestión de Usuarios</h2>
     <div class="users-section">
-      <h3>
-        Crear nuevo usuario (si no existe) / Ingresar a Dashboard (si ya está
-        creado)
-      </h3>
+      <h3>Crear nuevo usuario (si no existe) / Ingresar a Dashboard (si ya está creado)</h3>
 
-      <!-- Formulario -->
       <form id="userForm" onsubmit="return handleUserSubmit(event)">
-        <label
-          >Nombre:
-          <input type="text" name="name" placeholder="Nombre" required />
-        </label>
-
-        <label
-          >Correo electrónico:
-          <input
-            type="email"
-            name="email"
-            placeholder="Correo electrónico"
-            required
-        /></label>
-
-        <label
-          >Token:
-          <input type="text" name="token" placeholder="(déjalo vacío para crear)" />
-        </label>
-
+        <label>Nombre:<input type="text" name="name" placeholder="Nombre" required/></label>
+        <label>Correo electrónico:<input type="email" name="email" placeholder="Correo electrónico" required/></label>
+        <label>Token:<input type="text" name="token" placeholder="(déjalo vacío para crear)"/></label>
         <button type="submit">Ingresar a Dashboard</button>
       </form>
 
-      <!-- Tabla -->
-      <table style="margin-top: 20px">
-        <tr>
-          <th>Nombre</th>
-          <th>Email</th>
-          <th>Token</th>
-          <th>Rango de Fechas</th>
-          <th>Activo</th>
-          <th>Acciones</th>
-        </tr>
+      <table style="margin-top:20px">
+        <tr><th>Nombre</th><th>Email</th><th>Token</th><th>Rango de Fechas</th><th>Activo</th><th>Acciones</th></tr>
         {% for user in users %}
-        <tr>
-          <td>{{ user[1] }}</td>
-          <td>{{ user[2] }}</td>
-          <td>{{ user[6] }}</td>
-          <td>{{ user[3] }} – {{ user[4] }}</td>
-          <td>{{ 'Sí' if user[5] else 'No' }}</td>
-          <td>
-            <form class="user-management-actions" action="/admin" method="POST">
-              <input type="hidden" name="user_id" value="{{ user[0] }}" />
-              <button type="submit" name="action" value="toggle">
-                {{ 'Desactivar' if user[5] else 'Activar' }}
-              </button>
-              <button type="submit" name="action" value="regen_token">
-                Nuevo Token
-              </button>
-            </form>
-          </td>
-        </tr>
+          <tr>
+            <td>{{ user[1] }}</td>
+            <td>{{ user[2] }}</td>
+            <td>{{ user[6] }}</td>
+            <td>{{ user[3] }} – {{ user[4] }}</td>
+            <td>{{ 'Sí' if user[5] else 'No' }}</td>
+            <td>
+              <form class="user-management-actions" action="/admin" method="POST">
+                <input type="hidden" name="user_id" value="{{ user[0] }}"/>
+                <button type="submit" name="action" value="toggle">{{ 'Desactivar' if user[5] else 'Activar' }}</button>
+                <button type="submit" name="action" value="regen_token">Nuevo Token</button>
+              </form>
+            </td>
+          </tr>
         {% endfor %}
       </table>
     </div>
   </div>
 
-  <!-- ===== FOOTER ===== -->
   <footer>
-    <p>
-      Desarrollado por
-      <a href="https://www.teams.com.mx" target="_blank">Teams</a> © 2025
-    </p>
+    <p>Desarrollado por <a href="https://www.teams.com.mx" target="_blank">Teams</a> © 2025</p>
   </footer>
 
-  <!-- Mini JS -->
   <script>
-    async function handleUserSubmit(e) {
+    async function handleUserSubmit(e){
       e.preventDefault();
-      const f = e.target;
-      const name = f.elements.name.value.trim();
-      const email = f.elements.email.value.trim();
-      const token = f.elements.token.value.trim();
+      const f=e.target;
+      const name=f.elements.name.value.trim();
+      const email=f.elements.email.value.trim();
+      const token=f.elements.token.value.trim();
 
-      /* Crear usuario nuevo */
-      if (!token) {
-        const res = await fetch('/admin/users', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, email })
+      if(!token){
+        const res=await fetch('/admin/users',{
+          method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({name,email})
         });
-        if (res.ok) {
-          location.reload();
-        } else {
-          alert('Error al crear usuario');
-        }
+        if(res.ok){location.reload();}else{alert('Error al crear usuario');}
         return false;
       }
-
-      /* Entrar a dashboard existente */
-      window.open(
-        `https://leo-api-ryzd.onrender.com/dashboard?auth=${encodeURIComponent(
-          token
-        )}`,
-        '_blank'
-      );
+      // 👇 Ajusta dominio del dashboard si es necesario
+      window.open(`/dashboard?auth=${encodeURIComponent(token)}`,'_blank');
       return false;
     }
   </script>
