@@ -31,7 +31,7 @@ const VIDEO_SENTINELS = new Set([
   'Video_Missing_Error',
 ]);
 
-type Props = {
+export type Props = {
   initialData: DashboardData | null;
   error: string | null;
 };
@@ -50,7 +50,7 @@ export default function DashboardClient({ initialData, error }: Props) {
   // Normaliza sesiones (filtra sentinelas de video, asegura arrays, etc.)
   const normalizedRecords = useMemo<SessionRecord[]>(() => {
     return (records || []).map((s) => ({
-      ...s, // ← importante (corrige el typo “.s,”)
+      ...s,
       video_s3: s.video_s3 && !VIDEO_SENTINELS.has(s.video_s3) ? s.video_s3 : null,
       comments_public: Array.isArray(s.comments_public) ? s.comments_public : [],
     }));
