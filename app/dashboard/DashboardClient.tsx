@@ -1,528 +1,280 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
-import { useUnmount } from 'ahooks';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import Cookies from 'js-cookie';
+import Link from 'next/link';
 
-import {
-  AvatarQuality,
-  StreamingEvents,
-  VoiceChatTransport,
-  VoiceEmotion,
-  StartAvatarRequest,
-  STTProvider,
-  ElevenLabsModel,
-} from '@heygen/streaming-avatar';
+// 🔹 Ajusta si tu API devuelve otros nombres de campos
+interface SessionRecord {
+  scenario: string;
+  message: string;              // Mensaje del usuario
+  evaluation: string;           // Resumen público de IA
+  tip?: string;                 // Consejo personalizado
+  visual_feedback?: string;     // Feedback visual
+  comments_public?: string[];   // Comentarios o bullets
+  video_s3: string | null;      // URL de video (S3) o null
+  created_at: string;           // Fecha/hora ya normalizada desde backend
+}
 
-import {
-  StreamingAvatarProvider,
-  StreamingAvatarSessionState,
-  useStreamingAvatarSession,
-  useVoiceChat,
-  MessageSender,
-} from '@/components/logic';
+interface DashboardData {
+  name: string;
+  email: string;
+  user_token: string;
+  sessions: SessionRecord[];
+  used_seconds: number;
+}
 
-import { Button } from '@/components/Button';
-import { AvatarConfig } from '@/components/AvatarConfig';
-import { AvatarVideo } from '@/components/AvatarSession/AvatarVideo';
-import { AvatarControls } from '@/components/AvatarSession/AvatarControls';
-import { LoadingIcon } from '@/components/Icons';
-import { MessageHistory } from '@/components/AvatarSession/MessageHistory';
-import { LoaderCircle } from 'lucide-react';
+const VIDEO_SENTINELS = new Set([
+  'Video_Not_Available_Error',
+  'Video_Processing_Failed',
+  'Video_Missing_Error',
+]);
 
-// ───────────────────────────────────────────────────────────────
-// Default HeyGen avatar config (ajusta avatarName/knowledgeId si ya tienes el final de LEO)
-// ───────────────────────────────────────────────────────────────
-const DEFAULT_CONFIG: StartAvatarRequest = {
-  quality: AvatarQuality.Low,
-  avatarName: 'Graham_Chair_Sitting_public', // ← pon aquí el asset final de LEO si corresponde
-  knowledgeId: 'bca7f7c812cf49caabe462699a579b44',
-  language: 'es',
-  voice: {
-    voiceId: '92c8bd8d48f5467ab8a65f5db5d769f6',
-    model: ElevenLabsModel.eleven_multilingual_v2,
-    rate: 1.15,
-    emotion: VoiceEmotion.FRIENDLY,
-  },
-  voiceChatTransport: VoiceChatTransport.WEBSOCKET,
-  sttSettings: { provider: STTProvider.DEEPGRAM },
+type Props = {
+  initialData: DashboardData | null;
+  error: string | null;
 };
 
-function InteractiveSessionContent() {
+export default function DashboardClient({ initialData, error }: Props) {
   const router = useRouter();
-  const searchParams = useSearchParams();
 
-  const {
-    initAvatar,
-    startAvatar,
-    stopAvatar,
-    sessionState,
-    stream,
-    messages,
-    handleUserTalkingMessage,
-    handleStreamingTalkingMessage,
-  } = useStreamingAvatarSession();
+  const [name, setName] = useState<string | null>(initialData?.name ?? null);
+  const [email, setEmail] = useState<string | null>(initialData?.email ?? null);
+  const [token, setToken] = useState<string | null>(initialData?.user_token ?? null);
+  const [records, setRecords] = useState<SessionRecord[]>(initialData?.sessions ?? []);
+  const [usedSeconds, setUsedSeconds] = useState<number>(initialData?.used_seconds ?? 0);
 
-  const { startVoiceChat } = useVoiceChat();
+  const maxSeconds = 60 * 30; // 30 minutos
 
-  // ── Local UI State ────────────────────────────────────────────
-  const [config, setConfig] = useState<StartAvatarRequest>(DEFAULT_CONFIG);
-  const [sessionInfo, setSessionInfo] = useState<{
-    name: string;
-    email: string;
-    scenario: string;
-    token: string;
-  } | null>(null);
-  const [isReady, setIsReady] = useState(false);
-  const [showAutoplayBlockedMessage, setShowAutoplayBlockedMessage] = useState(false);
-  const [isAttemptingAutoStart, setIsAttemptingAutoStart] = useState(false);
-  const [hasUserMediaPermission, setHasUserMediaPermission] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
-  const [isVoiceActive, setIsVoiceActive] = useState(false); // ← recuperado del viejo
-
-  // ── Refs ─────────────────────────────────────────────────────
-  const recordingTimerRef = useRef<number>(900);
-  const [timerDisplay, setTimerDisplay] = useState('15:00');
-  const messagesRef = useRef<any[]>([]);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const recordedChunks = useRef<Blob[]>([]);
-  const localUserStreamRef = useRef<MediaStream | null>(null);
-  const userCameraRef = useRef<HTMLVideoElement>(null);
-  const avatarVideoRef = useRef<HTMLVideoElement>(null);
-  const isFinalizingRef = useRef(false);
+  // Normaliza sesiones (filtra sentinelas de video, asegura arrays, etc.)
+  const normalizedRecords = useMemo<SessionRecord[]>(() => {
+    return (records || []).map((s) => ({
+      ...s, // ← importante (corrige el typo “.s,”)
+      video_s3: s.video_s3 && !VIDEO_SENTINELS.has(s.video_s3) ? s.video_s3 : null,
+      comments_public: Array.isArray(s.comments_public) ? s.comments_public : [],
+    }));
+  }, [records]);
 
   useEffect(() => {
-    messagesRef.current = messages;
-  }, [messages]);
-
-  // ── Parse URL params & JWT ───────────────────────────────────
-  useEffect(() => {
-    const name = searchParams.get('name') || '';
-    const email = searchParams.get('email') || '';
-    const scenario = searchParams.get('scenario') || '';
-    const urlToken = searchParams.get('token') || '';
-    const cookieToken = (() => {
-      if (typeof document !== 'undefined') {
-        const m = document.cookie.match(/(?:^|; )jwt=([^;]+)/);
-        return m ? decodeURIComponent(m[1]) : '';
-      }
-      return '';
-    })();
-    const token = urlToken || cookieToken;
-
-    if (name && email && scenario && token) {
-      setSessionInfo({ name, email, scenario, token });
-      setIsReady(true);
-    } else {
-      console.error('Faltan parámetros en la URL');
-    }
-  }, [searchParams]);
-
-  // ── Camera helpers ───────────────────────────────────────────
-  const stopUserCameraRecording = useCallback(() => {
-    if (localUserStreamRef.current) {
-      localUserStreamRef.current.getTracks().forEach((t) => t.stop());
-      localUserStreamRef.current = null;
-    }
-    if (userCameraRef.current) userCameraRef.current.srcObject = null;
-    if (mediaRecorderRef.current?.state === 'recording') mediaRecorderRef.current.stop();
-  }, []);
-
-  const startUserCameraRecording = useCallback(() => {
-    if (!localUserStreamRef.current || mediaRecorderRef.current?.state === 'recording') return;
-    try {
-      const recorder = new MediaRecorder(localUserStreamRef.current, {
-        mimeType: 'video/webm; codecs=vp8',
-        videoBitsPerSecond: 2_500_000,
-        audioBitsPerSecond: 128_000,
-      });
-      recordedChunks.current = [];
-      recorder.ondataavailable = (e) => e.data.size && recordedChunks.current.push(e.data);
-      recorder.start();
-      mediaRecorderRef.current = recorder;
-    } catch (err) {
-      console.error('Error al iniciar MediaRecorder:', err);
-    }
-  }, []);
-
-  // ── Finalize & Upload ────────────────────────────────────────
-  const stopAndFinalizeSession = useCallback(
-    async (sessionMessages: any[]) => {
-      if (isFinalizingRef.current || !sessionInfo) return;
-      isFinalizingRef.current = true;
-      setIsUploading(true);
-
-      stopAvatar();
-      setIsVoiceActive(false); // ← baja flag voz
-
-      const finalize = async () => {
-        stopUserCameraRecording();
-
-        const { name, email, scenario, token } = sessionInfo;
-        const userTranscript = sessionMessages
-          .filter((m) => m.sender === MessageSender.CLIENT)
-          .map((m) => m.content)
-          .join('\n');
-        const avatarTranscript = sessionMessages
-          .filter((m) => m.sender === MessageSender.AVATAR)
-          .map((m) => m.content)
-          .join('\n');
-        const duration = 480 - recordingTimerRef.current;
-        const flaskApiUrl = process.env.NEXT_PUBLIC_FLASK_API_URL || '';
-
-        try {
-          let videoS3Key: string | null = null;
-          if (recordedChunks.current.length) {
-            const videoBlob = new Blob(recordedChunks.current, { type: 'video/webm' });
-            if (videoBlob.size) {
-              const form = new FormData();
-              form.append('video', videoBlob, 'user_recording.webm');
-              const uploadRes = await fetch(`${flaskApiUrl}/upload_video`, {
-                method: 'POST',
-                headers: { Authorization: `Bearer ${token}` },
-                body: form,
-              });
-              const uploadJson = await uploadRes.json();
-              if (!uploadRes.ok) throw new Error(uploadJson.message || 'Error desconocido');
-              videoS3Key = uploadJson.s3_object_key;
-            }
-          }
-
-          await fetch(`${flaskApiUrl}/log_full_session`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              name,
-              email,
-              scenario,
-              conversation: userTranscript,
-              avatar_transcript: avatarTranscript,
-              duration,
-              s3_object_key: videoS3Key,
-            }),
-          });
-        } catch (err: any) {
-          console.error('❌ Error finalizando sesión:', err);
-          alert(`⚠️ ${err.message}`);
-          setIsUploading(false);
-        } finally {
-          router.push('/dashboard');
-        }
-      };
-
-      if (mediaRecorderRef.current?.state === 'recording') {
-        mediaRecorderRef.current.onstop = finalize;
-        mediaRecorderRef.current.stop();
-      } else {
-        finalize();
-      }
-    },
-    [stopAvatar, stopUserCameraRecording, router, sessionInfo]
-  );
-
-  // ── Access token helper ─────────────────────────────────────
-  const fetchAccessToken = useCallback(async () => {
-    const res = await fetch('/api/get-access-token', { method: 'POST' });
-    if (!res.ok) throw new Error(`Fallo al obtener token de acceso: ${res.status}`);
-    return res.text();
-  }, []);
-
-  // ── Start session with HeyGen (voz arranca en STREAM_READY) ──
-  const startHeyGenSession = useCallback(
-    async (withVoice: boolean) => {
-      if (!hasUserMediaPermission) {
-        alert('Por favor, permite el acceso a la cámara y el micrófono.');
-        return;
-      }
-      setIsAttemptingAutoStart(true);
-      try {
-        const heygenToken = await fetchAccessToken();
-        const avatar = initAvatar(heygenToken);
-
-        avatar.on(StreamingEvents.USER_TALKING_MESSAGE, (e) => {
-          console.log('USER_STT:', e.detail);
-          handleUserTalkingMessage({ detail: e.detail });
-        });
-
-        avatar.on(StreamingEvents.AVATAR_TALKING_MESSAGE, (e) => {
-          console.log('AVATAR_TTS:', e.detail);
-          handleStreamingTalkingMessage({ detail: e.detail });
-        });
-
-        avatar.on(StreamingEvents.STREAM_DISCONNECTED, () => {
-          if (!isFinalizingRef.current) stopAndFinalizeSession(messagesRef.current);
-          setIsVoiceActive(false);
-        });
-
-        avatar.on(StreamingEvents.STREAM_READY, async () => {
-          setIsAttemptingAutoStart(false);
-          // saludo breve para “destrabar” audio/autoplay en algunos navegadores
-          try {
-            await (avatar as any)?.speakText?.('Hola, ya te escucho. Cuando quieras, empezamos.');
-          } catch {}
-
-          if (withVoice) {
-            try {
-              await startVoiceChat(); // arrancar voz solo cuando el stream esté listo
-              setIsVoiceActive(true);
-              console.log('startVoiceChat OK');
-            } catch (e) {
-              console.error('startVoiceChat falló:', e);
-            }
-          }
-        });
-
-        await startAvatar(config); // levanta el stream (no inicies voz aquí)
-      } catch (err: any) {
-        console.error('Error iniciando sesión con HeyGen:', err);
-        setShowAutoplayBlockedMessage(true);
-      } finally {
-        setIsAttemptingAutoStart(false);
-      }
-    },
-    [
-      hasUserMediaPermission,
-      fetchAccessToken,
-      initAvatar,
-      config,
-      startAvatar,
-      startVoiceChat,
-      stopAndFinalizeSession,
-      handleUserTalkingMessage,
-      handleStreamingTalkingMessage,
-    ]
-  );
-
-  // ── “Encender voz” si ya hay stream activo ───────────────────
-  const handleVoiceChatClick = useCallback(async () => {
-    if (!hasUserMediaPermission) {
-      alert('Por favor, permite el acceso a la cámara y el micrófono.');
+    if (error) {
+      console.error('Error fetching dashboard data:', error);
+      alert(`Error al cargar el dashboard: ${error}`);
+      router.push('/');
       return;
     }
-    if (sessionState === StreamingAvatarSessionState.CONNECTED) {
-      try {
-        await startVoiceChat();
-        setIsVoiceActive(true);
-        console.log('startVoiceChat OK (sesión ya conectada)');
-      } catch (e) {
-        console.error('startVoiceChat falló:', e);
-      }
+
+    if (initialData) {
+      setName(initialData.name ?? null);
+      setEmail(initialData.email ?? null);
+      setToken(initialData.user_token ?? null);
+      setRecords(initialData.sessions ?? []);
+      setUsedSeconds(initialData.used_seconds ?? 0);
+
+      // (Opcional) Persistir en cookies para otros flujos
+      Cookies.set('user_name', initialData.name ?? '', { sameSite: 'Lax' });
+      Cookies.set('user_email', initialData.email ?? '', { sameSite: 'Lax' });
+      Cookies.set('user_token', initialData.user_token ?? '', { sameSite: 'Lax' });
+      return;
+    }
+
+    // Fallback: intenta desde cookies si no vino initialData
+    const userName = Cookies.get('user_name') || null;
+    const userEmail = Cookies.get('user_email') || null;
+    const userToken = Cookies.get('user_token') || null;
+
+    if (!userName || !userEmail || !userToken) {
+      router.push('/');
     } else {
-      startHeyGenSession(true);
+      setName(userName);
+      setEmail(userEmail);
+      setToken(userToken);
     }
-  }, [hasUserMediaPermission, sessionState, startVoiceChat, startHeyGenSession]);
+  }, [initialData, error, router]);
 
-  // ── Get user media on mount ─────────────────────────────────
-  useEffect(() => {
-    const getUserMediaStream = async () => {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: true,
-          video: { width: 640, height: 480, frameRate: 15 },
-        });
-        localUserStreamRef.current = stream;
-        if (userCameraRef.current) userCameraRef.current.srcObject = stream;
-        setHasUserMediaPermission(true);
-      } catch (err) {
-        console.error('❌ Error al obtener permisos:', err);
-        setShowAutoplayBlockedMessage(true);
-      }
-    };
-    if (isReady) getUserMediaStream();
-  }, [isReady]);
-
-  // ── Start recording when avatar connects ────────────────────
-  useEffect(() => {
-    if (
-      sessionState === StreamingAvatarSessionState.CONNECTED &&
-      hasUserMediaPermission &&
-      !mediaRecorderRef.current
-    ) {
-      startUserCameraRecording();
-    }
-  }, [sessionState, hasUserMediaPermission, startUserCameraRecording]);
-
-  // ── Bind remote stream to video tag ─────────────────────────
-  useEffect(() => {
-    if (stream && avatarVideoRef.current) {
-      avatarVideoRef.current.srcObject = stream;
-      avatarVideoRef.current.onloadedmetadata = () => {
-        avatarVideoRef.current!.play().catch(() => {
-          setShowAutoplayBlockedMessage(true);
-        });
-      };
-    }
-  }, [stream]);
-
-  // ── Timer countdown ─────────────────────────────────────────
-  useEffect(() => {
-    let id: NodeJS.Timeout | undefined;
-    if (sessionState === StreamingAvatarSessionState.CONNECTED) {
-      id = setInterval(() => {
-        recordingTimerRef.current -= 1;
-        const m = Math.floor(recordingTimerRef.current / 60).toString().padStart(2, '0');
-        const s = (recordingTimerRef.current % 60).toString().padStart(2, '0');
-        setTimerDisplay(`${m}:${s}`);
-        if (recordingTimerRef.current <= 0) {
-          clearInterval(id);
-          stopAndFinalizeSession(messagesRef.current);
-        }
-      }, 1000);
-    }
-    return () => clearInterval(id);
-  }, [sessionState, stopAndFinalizeSession]);
-
-  // ── Clean up on unmount ─────────────────────────────────────
-  useUnmount(() => {
-    if (!isFinalizingRef.current) stopAndFinalizeSession(messagesRef.current);
-  });
-
-  const handleAutoplayRetry = () => {
-    if (hasUserMediaPermission) {
-      setShowAutoplayBlockedMessage(false);
-      startHeyGenSession(true);
-    } else {
-      alert('Por favor, permite el acceso a la cámara y el micrófono primero.');
-    }
+  const formatTime = (totalSeconds: number) => {
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
-  // ── Loading guard ------------------------------------------------
-  if (!isReady) {
+  if (!name) {
     return (
-      <div className="w-screen h-screen flex flex-col items-center justify-center bg-zinc-900 text-white">
-        <LoadingIcon className="w-10 h-10 animate-spin" />
-        <p className="mt-4">Verificando datos de sesión...</p>
+      <div className="min-h-screen flex items-center justify-center bg-zinc-900 text-white">
+        Cargando...
       </div>
     );
   }
 
-  // ── Main UI -----------------------------------------------------
+  const usagePct = Math.min(100, Math.max(0, (usedSeconds / maxSeconds) * 100));
+  const usageColor =
+    usedSeconds >= maxSeconds * 0.9 ? '#ff4d4d' : usedSeconds >= maxSeconds * 0.7 ? 'orange' : '#00bfff';
+
   return (
-    <div className="w-screen h-screen flex flex-col items-center bg-zinc-900 text-white relative">
-      <h1 className="text-3xl font-bold text-blue-400 mt-6 mb-4" suppressHydrationWarning>
-        {`🧠 Leo – ${sessionInfo?.scenario || ''}`}
-      </h1>
+    <div className="min-h-screen bg-zinc-900 text-white flex flex-col items-center">
+      <header className="w-full bg-zinc-950 p-6 shadow-md">
+        <h1 className="text-3xl font-bold text-blue-400 text-center md:text-left md:ml-10">
+          ¡Bienvenido/a, {name}!
+        </h1>
+        <p className="text-zinc-400 text-center md:text-left md:ml-10">
+          Centro de entrenamiento virtual con Leo
+        </p>
+      </header>
 
-      {sessionState === StreamingAvatarSessionState.INACTIVE && !hasUserMediaPermission && !showAutoplayBlockedMessage && (
-        <p className="text-zinc-300 mb-6">Solicitando permisos...</p>
-      )}
-      {showAutoplayBlockedMessage && (
-        <div className="text-red-400 mb-6 text-center">
-          Permisos de cámara/micrófono denegados o no disponibles.
-        </div>
-      )}
-
-      {/* Video area */}
-      <div className="relative w-full max-w-4xl flex flex-col md:flex-row items-center justify-center gap-5 p-4">
-        {/* Avatar video */}
-        <div className="relative w-full md:w-1/2 aspect-video min-h-[300px] flex items-center justify-center bg-zinc-800 rounded-lg shadow-lg overflow-hidden">
-          {sessionState !== StreamingAvatarSessionState.INACTIVE ? (
-            <AvatarVideo ref={avatarVideoRef} />
-          ) : (
-            !showAutoplayBlockedMessage && <AvatarConfig config={config} onConfigChange={setConfig} />
-          )}
-
-          {showAutoplayBlockedMessage && (
-            <div className="absolute inset-0 bg-black/75 flex flex-col items-center justify-center text-center p-4 z-30">
-              <p className="mb-4 text-lg font-semibold">Video y Audio Bloqueados</p>
-              <p className="mb-6">Haz clic para reintentar.</p>
-              <Button onClick={handleAutoplayRetry} className="bg-blue-600 hover:bg-blue-700">
-                Habilitar
-              </Button>
-            </div>
-          )}
-
-          {sessionState === StreamingAvatarSessionState.CONNECTING && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-20">
-              <LoadingIcon className="w-10 h-10 animate-spin" />
-              <span className="ml-2">Conectando…</span>
-            </div>
-          )}
-
-          {sessionState === StreamingAvatarSessionState.CONNECTED && (
-            <div className="absolute top-2 left-2 bg-black/70 text-white text-sm px-3 py-1 rounded-full z-10">
-              Grabando: {timerDisplay}
-            </div>
-          )}
-        </div>
-
-        {/* User camera */}
-        <div className="w-full md:w-1/2">
+      <main className="container max-w-4xl mx-auto p-6 flex flex-col gap-8 w-full">
+        <section className="flex flex-col md:flex-row items-start gap-5 p-4 bg-zinc-800 rounded-lg shadow-md">
+          <div className="flex-1 text-zinc-300">
+            <h3 className="text-xl font-semibold text-blue-400 mb-3">
+              📘 Instrucciones clave para tu sesión:
+            </h3>
+            <ul className="text-left list-disc list-inside space-y-2">
+              <li>
+                🖱️ Al hacer clic en <strong>"Iniciar"</strong>, serás conectado con el doctor virtual Leo.
+              </li>
+              <li>⏱️ El cronómetro comienza automáticamente (8 minutos por sesión).</li>
+              <li>
+                🎥 Autoriza el acceso a tu <strong>cámara</strong> y <strong>micrófono</strong> cuando se te pida.
+              </li>
+              <li>
+                👨‍⚕️ Una vez conectado, haz clic en el micrófono en la ventana del avatar y comienza la conversación
+                médica.
+              </li>
+              <li>🗣️ Habla con claridad y presenta tu producto de forma profesional.</li>
+              <li>🤫 Cuando termines de hablar, espera la respuesta del Dr. Leo.</li>
+              <li>🎤 Para volver a hablar, vuelve a activar el micrófono en la ventana del doctor.</li>
+              <li>
+                🎯 Sigue el modelo de ventas <strong>Da Vinci</strong>: saludo, necesidad, propuesta, cierre.
+              </li>
+            </ul>
+            <p className="mt-4 text-sm">Tu sesión será evaluada automáticamente por IA. ¡Aprovecha cada minuto!</p>
+          </div>
           <video
-            ref={userCameraRef}
+            controls
             autoPlay
             muted
-            playsInline
-            className="rounded-lg border border-blue-500 w-full aspect-video object-cover bg-black"
-          />
-        </div>
-      </div>
+            loop
+            className="w-full md:w-80 rounded-lg shadow-lg border border-blue-500"
+          >
+            <source src="/video_intro.mp4" type="video/mp4" />
+            Tu navegador no soporta la reproducción de video.
+          </video>
+        </section>
 
-      {/* Controls */}
-      <div className="flex flex-col gap-3 items-center justify-center p-4 border-t border-zinc-700 w-full mt-6">
-        {/* Arranque inicial */}
-        {sessionState === StreamingAvatarSessionState.INACTIVE && !showAutoplayBlockedMessage && (
-          <div className="flex flex-row gap-4">
-            <Button
-              onClick={() => startHeyGenSession(true)}
-              disabled={isAttemptingAutoStart || !hasUserMediaPermission}
-            >
-              Iniciar Chat de Voz
-            </Button>
-            <Button
-              onClick={() => startHeyGenSession(false)}
-              disabled={isAttemptingAutoStart || !hasUserMediaPermission}
-            >
-              Iniciar Chat de Texto
-            </Button>
+        <section className="grid grid-cols-1 md:grid-cols-3 gap-5">
+          <div className="bg-zinc-800 rounded-lg p-6 shadow-md text-center">
+            <h3 className="text-xl font-semibold text-blue-300 mb-3">Entrevista con Médico</h3>
+            {email && token ? (
+              <Link
+                href={{
+                  pathname: '/interactive-session',
+                  query: {
+                    name: name!,
+                    email: email!,
+                    scenario: 'coaching con gerente',
+                    token: token!,
+                  },
+                }}
+                className="inline-block bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg transition duration-200"
+              >
+                Iniciar
+              </Link>
+            ) : (
+              <span className="text-zinc-400 text-sm">Requiere autenticación</span>
+            )}
           </div>
-        )}
+        </section>
 
-        {/* Si ya estoy conectado pero la voz aún no está activa, muestro botón para encender mic */}
-        {sessionState === StreamingAvatarSessionState.CONNECTED && !isVoiceActive && (
-          <Button onClick={handleVoiceChatClick}>Encender voz</Button>
-        )}
+        <section className="bg-zinc-800 p-4 rounded-lg shadow-md border-l-4 border-blue-600">
+          <strong className="text-blue-300 text-lg">⏱ Tiempo mensual utilizado:</strong>
+          <div className="h-6 bg-zinc-700 rounded-full overflow-hidden mt-3 max-w-md mx-auto">
+            <div
+              className="h-full rounded-full transition-all"
+              style={{ width: `${usagePct}%`, background: usageColor }}
+            />
+          </div>
+          <p className="mt-2 text-sm text-zinc-300 text-center">
+            Usado: {formatTime(usedSeconds)} de {formatTime(maxSeconds)} minutos.
+          </p>
+        </section>
 
-        {sessionState === StreamingAvatarSessionState.CONNECTED && (
-          <>
-            <AvatarControls />
-            <Button
-              onClick={() => stopAndFinalizeSession(messagesRef.current)}
-              className="bg-red-600 hover:bg-red-700"
-            >
-              Finalizar Sesión
-            </Button>
-          </>
-        )}
-      </div>
+        <section>
+          <h2 className="text-2xl font-bold text-blue-400 border-b-2 border-blue-600 pb-3 mb-5">
+            Tus sesiones anteriores
+          </h2>
 
-      {sessionState === StreamingAvatarSessionState.CONNECTED && <MessageHistory />}
+          {normalizedRecords.length > 0 ? (
+            normalizedRecords.map((r, idx) => (
+              <article key={idx} className="bg-zinc-800 p-5 rounded-lg shadow-md mb-4">
+                <p className="text-lg font-semibold text-blue-300">Escenario: {r.scenario}</p>
+                <p className="text-zinc-400 text-sm">Fecha: {r.created_at}</p>
 
-      <footer className="mt-auto mb-5 text-sm text-zinc-500 text-center w-full">
+                <p className="mt-3 text-zinc-300">
+                  <strong>Resumen IA:</strong>
+                </p>
+                <div className="mt-1 mb-3 p-3 bg-zinc-700 rounded text-zinc-200 text-sm">
+                  <em>{r.evaluation}</em>
+                </div>
+
+                {r.tip && (
+                  <div className="mt-3 p-3 bg-blue-900/30 border-l-4 border-blue-500 rounded text-zinc-200 text-sm">
+                    <strong>🧠 Consejo personalizado de Leo:</strong>
+                    <p className="mt-1">{r.tip}</p>
+                  </div>
+                )}
+
+                {r.visual_feedback && (
+                  <div className="mt-3 p-3 bg-blue-900/30 border-l-4 border-blue-500 rounded text-zinc-200 text-sm">
+                    <strong>👁️ Retroalimentación Visual:</strong>
+                    <p className="mt-1">{r.visual_feedback}</p>
+                  </div>
+                )}
+
+                {r.comments_public && r.comments_public.length > 0 && (
+                  <div className="mt-3 p-3 bg-zinc-700 rounded text-zinc-200 text-sm">
+                    <strong>📋 Puntos clave:</strong>
+                    <ul className="list-disc list-inside mt-2 space-y-1">
+                      {r.comments_public.map((c, i) => (
+                        <li key={i}>{c}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {r.video_s3 && (
+                  <div className="mt-4">
+                    <video
+                      controls
+                      className="w-full md:max-w-xl mx-auto rounded-lg shadow-md border border-zinc-600"
+                    >
+                      <source src={r.video_s3} type="video/mp4" />
+                      Tu navegador no soporta la reproducción de video.
+                    </video>
+                  </div>
+                )}
+              </article>
+            ))
+          ) : (
+            <p className="text-zinc-400 text-center">
+              No has realizado sesiones todavía. ¡Comienza una con Leo!
+            </p>
+          )}
+        </section>
+      </main>
+
+      <footer className="mt-10 mb-5 text-sm text-zinc-500 text-center">
         <p>
           Desarrollado por{' '}
-          <a href="https://www.teams.com.mx" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">
+          <a
+            href="https://www.teams.com.mx"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-400 hover:underline"
+          >
             Teams
           </a>{' '}
-          © 2025
+          &copy; 2025
         </p>
       </footer>
-
-      {/* Overlay de subida / análisis IA */}
-      {isUploading && (
-        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/80 text-white backdrop-blur-sm">
-          <LoaderCircle className="h-12 w-12 animate-spin mb-6" />
-          <p className="text-lg text-center px-4">Subiendo a servidores para&nbsp;análisis&nbsp;IA…</p>
-        </div>
-      )}
     </div>
-  );
-}
-
-export default function InteractiveSessionWrapper() {
-  return (
-    <StreamingAvatarProvider>
-      <InteractiveSessionContent />
-    </StreamingAvatarProvider>
   );
 }
