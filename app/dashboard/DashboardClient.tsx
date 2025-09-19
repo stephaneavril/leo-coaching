@@ -1,20 +1,30 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import React from 'react';
 import { useRouter } from 'next/navigation';
-import Cookies from 'js-cookie';
 import Link from 'next/link';
 
-// 🔹 Ajusta si tu API devuelve otros nombres de campos
+type PublicComment = {
+  id: number;
+  author: string;
+  body: string;
+  created: string; // "YYYY-MM-DD HH:MM"
+};
+
 interface SessionRecord {
+  id?: number;
   scenario: string;
-  message: string;              // Mensaje del usuario
-  evaluation: string;           // Resumen público de IA
-  tip?: string;                 // Consejo personalizado
-  visual_feedback?: string;     // Feedback visual
-  comments_public?: string[];   // Comentarios o bullets
-  video_s3: string | null;      // URL de video (S3) o null
-  created_at: string;           // Fecha/hora ya normalizada desde backend
+  user_transcript: string;
+  avatar_transcript: string;
+  coach_advice: string;
+  rh_evaluation?: string;
+  video_s3: string | null;
+  created_at: string;
+  tip: string;
+  visual_feedback: string;
+  duration: number;
+  visible_to_user?: boolean;
+  comments_public?: PublicComment[];
 }
 
 interface DashboardData {
@@ -25,256 +35,360 @@ interface DashboardData {
   used_seconds: number;
 }
 
-const VIDEO_SENTINELS = new Set([
-  'Video_Not_Available_Error',
-  'Video_Processing_Failed',
-  'Video_Missing_Error',
-]);
+const SENTINELS = ['Video_Not_Available_Error', 'Video_Processing_Failed', 'Video_Missing_Error'];
 
-export type Props = {
+export default function DashboardClient({
+  initialData,
+  error,
+}: {
   initialData: DashboardData | null;
   error: string | null;
-};
-
-export default function DashboardClient({ initialData, error }: Props) {
+}) {
   const router = useRouter();
 
-  const [name, setName] = useState<string | null>(initialData?.name ?? null);
-  const [email, setEmail] = useState<string | null>(initialData?.email ?? null);
-  const [token, setToken] = useState<string | null>(initialData?.user_token ?? null);
-  const [records, setRecords] = useState<SessionRecord[]>(initialData?.sessions ?? []);
-  const [usedSeconds, setUsedSeconds] = useState<number>(initialData?.used_seconds ?? 0);
-
-  const maxSeconds = 60 * 30; // 30 minutos
-
-  // Normaliza sesiones (filtra sentinelas de video, asegura arrays, etc.)
-  const normalizedRecords = useMemo<SessionRecord[]>(() => {
-    return (records || []).map((s) => ({
-      ...s,
-      video_s3: s.video_s3 && !VIDEO_SENTINELS.has(s.video_s3) ? s.video_s3 : null,
-      comments_public: Array.isArray(s.comments_public) ? s.comments_public : [],
-    }));
-  }, [records]);
-
-  useEffect(() => {
-    if (error) {
-      console.error('Error fetching dashboard data:', error);
-      alert(`Error al cargar el dashboard: ${error}`);
-      router.push('/');
-      return;
-    }
-
-    if (initialData) {
-      setName(initialData.name ?? null);
-      setEmail(initialData.email ?? null);
-      setToken(initialData.user_token ?? null);
-      setRecords(initialData.sessions ?? []);
-      setUsedSeconds(initialData.used_seconds ?? 0);
-
-      // (Opcional) Persistir en cookies para otros flujos
-      Cookies.set('user_name', initialData.name ?? '', { sameSite: 'Lax' });
-      Cookies.set('user_email', initialData.email ?? '', { sameSite: 'Lax' });
-      Cookies.set('user_token', initialData.user_token ?? '', { sameSite: 'Lax' });
-      return;
-    }
-
-    // Fallback: intenta desde cookies si no vino initialData
-    const userName = Cookies.get('user_name') || null;
-    const userEmail = Cookies.get('user_email') || null;
-    const userToken = Cookies.get('user_token') || null;
-
-    if (!userName || !userEmail || !userToken) {
-      router.push('/');
-    } else {
-      setName(userName);
-      setEmail(userEmail);
-      setToken(userToken);
-    }
-  }, [initialData, error, router]);
-
-  const formatTime = (totalSeconds: number) => {
-    const minutes = Math.floor(totalSeconds / 60);
-    const seconds = totalSeconds % 60;
-    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
-  };
-
-  if (!name) {
+  if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-zinc-900 text-white">
-        Cargando...
+      <div className="min-h-screen flex flex-col items-center justify-center">
+        <style jsx global>{`
+          html, body { margin: 0; padding: 0; background: #0c0e2c; color: #fff; font-family: 'Open Sans', sans-serif; }
+        `}</style>
+        <h2 className="text-2xl text-red-500 mb-2">Error al cargar datos</h2>
+        <p>{error}</p>
       </div>
     );
   }
 
-  const usagePct = Math.min(100, Math.max(0, (usedSeconds / maxSeconds) * 100));
-  const usageColor =
-    usedSeconds >= maxSeconds * 0.9 ? '#ff4d4d' : usedSeconds >= maxSeconds * 0.7 ? 'orange' : '#00bfff';
+  if (!initialData) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <style jsx global>{`
+          html, body { margin: 0; padding: 0; background: #0c0e2c; color: #fff; font-family: 'Open Sans', sans-serif; }
+        `}</style>
+        Cargando…
+      </div>
+    );
+  }
+
+  const {
+    name: userName,
+    email,
+    user_token,
+    sessions = [],
+    used_seconds: usedSeconds = 0,
+  } = initialData;
+
+  const records: SessionRecord[] = sessions.map((s) => ({
+    ...s,
+    video_s3: s.video_s3 && !SENTINELS.includes(s.video_s3) ? s.video_s3 : null,
+    created_at: s.created_at ? new Date(s.created_at).toLocaleString() : '',
+    comments_public: Array.isArray(s.comments_public) ? s.comments_public : [],
+  }));
+
+  // Solo mostrar sesiones que tengan algo publicado para el usuario
+  const visibleRecords = records.filter((r) => (r.coach_advice || r.rh_evaluation) && (r.visible_to_user ?? true));
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}m ${secs.toString().padStart(2, '0')}s`;
+  };
+
+  const maxSeconds = 1_800; // 30 min
+  const defaultScenario = 'Entrevista con médico';
 
   return (
-    <div className="min-h-screen bg-zinc-900 text-white flex flex-col items-center">
-      <header className="w-full bg-zinc-950 p-6 shadow-md">
-        <h1 className="text-3xl font-bold text-blue-400 text-center md:text-left md:ml-10">
-          ¡Bienvenido/a, {name}!
-        </h1>
-        <p className="text-zinc-400 text-center md:text-left md:ml-10">
-          Centro de entrenamiento virtual con Leo
-        </p>
-      </header>
+    <>
+      <style jsx global>{`
+        @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@500;700&family=Open+Sans:wght@400;600&display=swap');
 
-      <main className="container max-w-4xl mx-auto p-6 flex flex-col gap-8 w-full">
-        <section className="flex flex-col md:flex-row items-start gap-5 p-4 bg-zinc-800 rounded-lg shadow-md">
-          <div className="flex-1 text-zinc-300">
-            <h3 className="text-xl font-semibold text-blue-400 mb-3">
-              📘 Instrucciones clave para tu sesión:
-            </h3>
-            <ul className="text-left list-disc list-inside space-y-2">
-              <li>
-                🖱️ Al hacer clic en <strong>"Iniciar"</strong>, serás conectado con el doctor virtual Leo.
-              </li>
-              <li>⏱️ El cronómetro comienza automáticamente (8 minutos por sesión).</li>
-              <li>
-                🎥 Autoriza el acceso a tu <strong>cámara</strong> y <strong>micrófono</strong> cuando se te pida.
-              </li>
-              <li>
-                👨‍⚕️ Una vez conectado, haz clic en el micrófono en la ventana del avatar y comienza la conversación
-                médica.
-              </li>
-              <li>🗣️ Habla con claridad y presenta tu producto de forma profesional.</li>
-              <li>🤫 Cuando termines de hablar, espera la respuesta del Dr. Leo.</li>
-              <li>🎤 Para volver a hablar, vuelve a activar el micrófono en la ventana del doctor.</li>
-              <li>
-                🎯 Sigue el modelo de ventas <strong>Da Vinci</strong>: saludo, necesidad, propuesta, cierre.
-              </li>
-            </ul>
-            <p className="mt-4 text-sm">Tu sesión será evaluada automáticamente por IA. ¡Aprovecha cada minuto!</p>
-          </div>
-          <video
-            controls
-            autoPlay
-            muted
-            loop
-            className="w-full md:w-80 rounded-lg shadow-lg border border-blue-500"
-          >
-            <source src="/video_intro.mp4" type="video/mp4" />
-            Tu navegador no soporta la reproducción de video.
-          </video>
-        </section>
+        :root {
+          --primary-dark: #0c0e2c;
+          --primary-mid: #003559;
+          --primary-light: #00bfff;
+          --text-dark: #222;
+          --bg-gray: #f4f6fa;
+          --bg-white: #ffffff;
+          --shadow-lg: rgba(0, 0, 0, 0.12);
+        }
 
-        <section className="grid grid-cols-1 md:grid-cols-3 gap-5">
-          <div className="bg-zinc-800 rounded-lg p-6 shadow-md text-center">
-            <h3 className="text-xl font-semibold text-blue-300 mb-3">Entrevista con Médico</h3>
-            {email && token ? (
+        html, body, .dashboard-page-container {
+          background: var(--bg-gray) !important;
+          color: var(--text-dark) !important;
+          margin: 0;
+          padding: 0;
+          font-family: 'Open Sans', sans-serif;
+        }
+
+        header {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          padding: 18px 28px;
+          background: linear-gradient(90deg, var(--primary-dark), var(--primary-mid) 55%, var(--primary-light));
+          color: #fff;
+          box-shadow: 0 2px 6px rgba(0,0,0,.45);
+        }
+        header h1 {
+          margin: 0;
+          font-family: 'Montserrat', sans-serif;
+          font-weight: 700;
+          font-size: 26px;
+          letter-spacing: .2px;
+        }
+        header p { margin: 0; opacity: .9; }
+
+        .container-content { max-width: 1100px; margin: 0 auto; padding: 32px 22px 40px; }
+
+        .section-title {
+          font: 700 22px 'Montserrat', sans-serif;
+          margin: 28px 0 16px;
+          color: var(--primary-dark);
+          display: inline-block;
+          border-bottom: 3px solid var(--primary-light);
+          padding-bottom: 6px;
+        }
+
+        .card-grid { display: flex; flex-wrap: wrap; gap: 16px; }
+        .card {
+          background: var(--bg-white);
+          border-radius: 14px;
+          padding: 18px;
+          width: 260px;
+          box-shadow: 0 8px 22px var(--shadow-lg);
+          transition: transform .18s ease;
+          border: 1px solid #eef2f7;
+        }
+        .card:hover { transform: translateY(-3px); }
+        .card h3 { margin: 4px 0 12px; font-family: 'Montserrat'; color: var(--primary-dark); }
+        .card button {
+          padding: 10px 16px;
+          border: none; border-radius: 8px;
+          background: var(--primary-light); color:#000; font-weight: 700;
+          cursor: pointer; transition: background .15s ease, transform .1s ease;
+          width: 100%;
+        }
+        .card button:hover { background: #00a4e6; transform: translateY(-1px); }
+
+        .progress-bar {
+          background: #e9eef4; border-radius: 10px; overflow: hidden; height: 18px;
+          border: 1px solid #dbe4ee; margin: 10px 0 6px;
+        }
+        .progress-fill {
+          height: 100%; background: linear-gradient(to right, #00bfff, #007bff);
+          display: flex; align-items: center; justify-content: flex-end;
+          padding-right: 8px; color: #fff; font-weight: 700; font-size: 12px;
+          transition: width .35s ease-out;
+        }
+
+        .session-entry {
+          background: var(--bg-white);
+          border-radius: 16px;
+          box-shadow: 0 10px 28px var(--shadow-lg);
+          padding: 20px;
+          margin-bottom: 24px;
+          border: 1px solid #eef2f7;
+        }
+        .session-entry h3 {
+          margin: 0 0 6px;
+          font: 700 18px 'Montserrat', sans-serif; color: var(--primary-dark);
+        }
+        .muted { color: #566; font-size: .92rem; }
+
+        .evaluation-box {
+          margin-top: 14px; padding: 14px; border-radius: 12px;
+          background: #eaf7fb; border-left: 6px solid #00a4e6;
+        }
+        .evaluation-box.rh-box { background:#fff1f1; border-left-color:#cc0000; }
+        .evaluation-box.tip-box { background:#f7fbff; border-left-color:#00bfff; }
+
+        /* Caja ligera para los 7 pasos */
+        .howto-box{
+          background: var(--bg-white);
+          border: 1px solid #eef2f7;
+          border-radius: 14px;
+          box-shadow: 0 6px 18px var(--shadow-lg);
+          padding: 16px 18px;
+          margin: 10px 0 22px;
+        }
+        .howto-box h3{
+          margin: 0 0 10px;
+          font: 700 18px 'Montserrat', sans-serif;
+          color: var(--primary-dark);
+        }
+        .howto-box ol{ margin: 8px 0 0; padding-left: 20px; line-height: 1.6; }
+        .howto-box li{ margin: 6px 0; }
+
+        /* ⚠️ Aviso temporal (paso adicional) */
+        .notice-callout{
+          display: flex;
+          gap: 12px;
+          align-items: flex-start;
+          background: #fff8e6;
+          border: 1px solid #ffd27a;
+          border-left: 6px solid #ff9f0a;
+          color: #5a4100;
+          border-radius: 12px;
+          padding: 14px 16px;
+          box-shadow: 0 6px 18px var(--shadow-lg);
+          margin: 0 0 18px;
+        }
+        .notice-callout strong { color: #4a3500; }
+        .notice-badge{
+          min-width: 28px; height: 28px; border-radius: 50%;
+          background: #ff9f0a; color:#fff; display:flex; align-items:center; justify-content:center;
+          font-weight: 800; margin-top: 2px;
+        }
+        .notice-steps{ margin: 0; padding-left: 18px; line-height: 1.55; }
+        .notice-steps li{ margin: 4px 0; }
+
+        /* Historial */
+        .history-box {
+          margin-top: 12px;
+          padding: 12px;
+          border-radius: 12px;
+          background: #f6f9ff;
+          border: 1px solid #e4ecff;
+        }
+        .history-item {
+          background: #fff;
+          border: 1px solid #e6eefc;
+          border-radius: 10px;
+          padding: 10px 12px;
+        }
+      `}</style>
+
+      <div className="dashboard-page-container">
+        <header>
+          <h1>¡Bienvenido/a, {userName}!</h1>
+          <p>Centro de entrenamiento con Leo</p>
+        </header>
+
+        <div className="container-content">
+          <h2 className="section-title">Selecciona tu entrenamiento</h2>
+
+          {/* ⚠️ Aviso temporal: paso adicional para activar micrófono */}
+          <section className="notice-callout" role="status" aria-live="polite">
+            <div className="notice-badge">!</div>
+            <div>
+              <p style={{margin: 0}}>
+                <strong>Aviso:</strong> por ahora hay un <strong>paso adicional</strong> para que tu computadora
+                entienda que quieres hablar con el avatar.
+              </p>
+              <ol className="notice-steps">
+                <li>Al entrar, haz clic en <strong>Iniciar Chat de Voz</strong>.</li>
+                <li>Cuando veas al avatar y tu cámara, haz clic en <strong>Text Chat</strong>.</li>
+                <li>Inmediatamente vuelve a hacer clic en <strong>Voice Chat</strong>.</li>
+              </ol>
+              <p style={{margin: '6px 0 0'}}>Desde ese momento, puedes decir: <em>“Hola, doctora”</em> y te responderá por voz.</p>
+            </div>
+          </section>
+
+          {/* === Pasos de uso === */}
+          <section className="howto-box">
+            <h3>Cómo aprovechar a Leo en 7 pasos</h3>
+            <ol>
+              <li>Elige el escenario de entrenamiento que necesitas.</li>
+              <li>Activa cámara y micrófono; verifica que todo funcione.</li>
+              <li>Haz clic en <strong>Iniciar</strong> y saluda al avatar con “Buenos días, Doctora o Buenos días Doctor”.</li>
+              <li>Expón tu objetivo (p. ej., beneficio, evidencia, o cierre de la visita).</li>
+              <li>Aplica el modelo Da Vinci y aborda objeciones brevemente.</li>
+              <li>Dispones de 8 minutos por sesión y 30 minutos al mes.</li>
+              <li>Al terminar, desconéctate. Capacitación revisará con IA y publicará tu resumen para la siguiente práctica.</li>
+            </ol>
+          </section>
+
+          <div className="card-grid">
+            <div className="card">
+              <h3>Entrevista con Médico</h3>
               <Link
                 href={{
                   pathname: '/interactive-session',
-                  query: {
-                    name: name!,
-                    email: email!,
-                    scenario: 'coaching con gerente',
-                    token: token!,
-                  },
+                  query: { name: userName, email, scenario: defaultScenario, token: user_token },
                 }}
-                className="inline-block bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg transition duration-200"
+                passHref
               >
-                Iniciar
+                <button>Iniciar</button>
               </Link>
-            ) : (
-              <span className="text-zinc-400 text-sm">Requiere autenticación</span>
-            )}
+            </div>
           </div>
-        </section>
 
-        <section className="bg-zinc-800 p-4 rounded-lg shadow-md border-l-4 border-blue-600">
-          <strong className="text-blue-300 text-lg">⏱ Tiempo mensual utilizado:</strong>
-          <div className="h-6 bg-zinc-700 rounded-full overflow-hidden mt-3 max-w-md mx-auto">
-            <div
-              className="h-full rounded-full transition-all"
-              style={{ width: `${usagePct}%`, background: usageColor }}
-            />
+          <div style={{ marginTop: '22px' }}>
+            <strong>⏱ Tiempo mensual usado</strong>
+            <div className="progress-bar">
+              <div className="progress-fill" style={{ width: `${(usedSeconds / maxSeconds) * 100}%` }} />
+            </div>
+            <div className="muted">{formatTime(usedSeconds)} / {formatTime(maxSeconds)}</div>
           </div>
-          <p className="mt-2 text-sm text-zinc-300 text-center">
-            Usado: {formatTime(usedSeconds)} de {formatTime(maxSeconds)} minutos.
-          </p>
-        </section>
 
-        <section>
-          <h2 className="text-2xl font-bold text-blue-400 border-b-2 border-blue-600 pb-3 mb-5">
-            Tus sesiones anteriores
-          </h2>
+          <h2 className="section-title">Tus sesiones anteriores</h2>
 
-          {normalizedRecords.length > 0 ? (
-            normalizedRecords.map((r, idx) => (
-              <article key={idx} className="bg-zinc-800 p-5 rounded-lg shadow-md mb-4">
-                <p className="text-lg font-semibold text-blue-300">Escenario: {r.scenario}</p>
-                <p className="text-zinc-400 text-sm">Fecha: {r.created_at}</p>
+          {visibleRecords.length === 0 ? (
+            <p className="muted">Aún no tienes retroalimentación disponible.</p>
+          ) : (
+            visibleRecords.map((r) => (
+              <div key={r.id ?? r.created_at} className="session-entry">
+                <h3>{r.scenario}</h3>
+                <div className="muted">Fecha: {r.created_at}</div>
 
-                <p className="mt-3 text-zinc-300">
-                  <strong>Resumen IA:</strong>
-                </p>
-                <div className="mt-1 mb-3 p-3 bg-zinc-700 rounded text-zinc-200 text-sm">
-                  <em>{r.evaluation}</em>
-                </div>
+                {r.coach_advice && (
+                  <div className="evaluation-box">
+                    <p style={{ marginTop: 0, marginBottom: 8 }}>
+                      <strong>Resumen de tu sesión</strong>
+                    </p>
+                    <p style={{ opacity: 0.9, marginTop: 0 }}>
+                      Gracias por entrenar con Leo. Observaciones para tu próxima práctica:
+                    </p>
+                    <p style={{ marginBottom: 0 }}>{r.coach_advice}</p>
+                  </div>
+                )}
+
+                {r.rh_evaluation && (
+                  <div className="evaluation-box rh-box">
+                    <p style={{ marginTop: 0, marginBottom: 8 }}>
+                      <strong>Mensaje de Capacitación</strong>
+                    </p>
+                    <p style={{ marginBottom: 0 }}>{r.rh_evaluation}</p>
+                  </div>
+                )}
+
+                {/* Historial público de comentarios */}
+                {r.visible_to_user && (
+                  <div className="history-box">
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm font-semibold text-slate-600">Historial de comentarios</div>
+                      <div className="text-xs text-slate-500">{r.comments_public?.length || 0} registros</div>
+                    </div>
+                    {(!r.comments_public || r.comments_public.length === 0) ? (
+                      <p className="mt-2 text-slate-600 text-sm" style={{ margin: 0 }}>Aún no hay historial.</p>
+                    ) : (
+                      <ul className="mt-2 space-y-2" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                        {r.comments_public.map((c) => (
+                          <li key={c.id} className="history-item">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-medium text-slate-700">{c.author || 'Capacitación'}</span>
+                              <span className="text-[11px] text-slate-500">{c.created}</span>
+                            </div>
+                            <p className="mt-1 text-slate-800 text-sm" style={{ margin: 0, whiteSpace: 'pre-wrap' }}>
+                              {c.body}
+                            </p>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
 
                 {r.tip && (
-                  <div className="mt-3 p-3 bg-blue-900/30 border-l-4 border-blue-500 rounded text-zinc-200 text-sm">
-                    <strong>🧠 Consejo personalizado de Leo:</strong>
-                    <p className="mt-1">{r.tip}</p>
+                  <div className="evaluation-box tip-box">
+                    <p style={{ marginTop: 0 }}><strong>Idea para tu próxima práctica</strong></p>
+                    <p style={{ marginBottom: 0 }}>{r.tip}</p>
                   </div>
                 )}
-
-                {r.visual_feedback && (
-                  <div className="mt-3 p-3 bg-blue-900/30 border-l-4 border-blue-500 rounded text-zinc-200 text-sm">
-                    <strong>👁️ Retroalimentación Visual:</strong>
-                    <p className="mt-1">{r.visual_feedback}</p>
-                  </div>
-                )}
-
-                {r.comments_public && r.comments_public.length > 0 && (
-                  <div className="mt-3 p-3 bg-zinc-700 rounded text-zinc-200 text-sm">
-                    <strong>📋 Puntos clave:</strong>
-                    <ul className="list-disc list-inside mt-2 space-y-1">
-                      {r.comments_public.map((c, i) => (
-                        <li key={i}>{c}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {r.video_s3 && (
-                  <div className="mt-4">
-                    <video
-                      controls
-                      className="w-full md:max-w-xl mx-auto rounded-lg shadow-md border border-zinc-600"
-                    >
-                      <source src={r.video_s3} type="video/mp4" />
-                      Tu navegador no soporta la reproducción de video.
-                    </video>
-                  </div>
-                )}
-              </article>
+              </div>
             ))
-          ) : (
-            <p className="text-zinc-400 text-center">
-              No has realizado sesiones todavía. ¡Comienza una con Leo!
-            </p>
           )}
-        </section>
-      </main>
-
-      <footer className="mt-10 mb-5 text-sm text-zinc-500 text-center">
-        <p>
-          Desarrollado por{' '}
-          <a
-            href="https://www.teams.com.mx"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-400 hover:underline"
-          >
-            Teams
-          </a>{' '}
-          &copy; 2025
-        </p>
-      </footer>
-    </div>
+        </div>
+      </div>
+    </>
   );
 }
