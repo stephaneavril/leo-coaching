@@ -1,51 +1,51 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useUnmount } from 'ahooks';
 import { useRouter, useSearchParams } from 'next/navigation';
 
 import {
   AvatarQuality,
+  ElevenLabsModel,
+  STTProvider,
+  StartAvatarRequest,
   StreamingEvents,
   VoiceChatTransport,
   VoiceEmotion,
-  StartAvatarRequest,
-  STTProvider,
-  ElevenLabsModel,
 } from '@heygen/streaming-avatar';
 
 import {
+  MessageSender,
   StreamingAvatarProvider,
   StreamingAvatarSessionState,
   useStreamingAvatarSession,
   useVoiceChat,
-  MessageSender,
 } from '@/components/logic';
 
-import { Button } from '@/components/Button';
 import { AvatarConfig } from '@/components/AvatarConfig';
-import { AvatarVideo } from '@/components/AvatarSession/AvatarVideo';
 import { AvatarControls } from '@/components/AvatarSession/AvatarControls';
-import { LoadingIcon } from '@/components/Icons';
+import { AvatarVideo } from '@/components/AvatarSession/AvatarVideo';
 import { MessageHistory } from '@/components/AvatarSession/MessageHistory';
+import { Button } from '@/components/Button';
+import { LoadingIcon } from '@/components/Icons';
 import { LoaderCircle } from 'lucide-react';
 
 // ───────────────────────────────────────────────────────────────
 // Config de HeyGen
 // ───────────────────────────────────────────────────────────────
 const DEFAULT_CONFIG: StartAvatarRequest = {
-  quality: AvatarQuality.Low,
   avatarName: 'Graham_Chair_Sitting_public',
   knowledgeId: 'bca7f7c812cf49caabe462699a579b44',
   language: 'es',
+  quality: AvatarQuality.Low,
+  sttSettings: { provider: STTProvider.DEEPGRAM },
   voice: {
-    voiceId: '92c8bd8d48f5467ab8a65f5db5d769f6',
+    emotion: VoiceEmotion.FRIENDLY,
     model: ElevenLabsModel.eleven_multilingual_v2,
     rate: 1.15,
-    emotion: VoiceEmotion.FRIENDLY,
+    voiceId: '92c8bd8d48f5467ab8a65f5db5d769f6',
   },
   voiceChatTransport: VoiceChatTransport.WEBSOCKET,
-  sttSettings: { provider: STTProvider.DEEPGRAM },
 };
 
 function InteractiveSessionContent() {
@@ -53,14 +53,14 @@ function InteractiveSessionContent() {
   const searchParams = useSearchParams();
 
   const {
+    handleStreamingTalkingMessage,
+    handleUserTalkingMessage,
     initAvatar,
+    messages,
+    sessionState,
     startAvatar,
     stopAvatar,
-    sessionState,
     stream,
-    messages,
-    handleUserTalkingMessage,
-    handleStreamingTalkingMessage,
   } = useStreamingAvatarSession();
 
   const { startVoiceChat } = useVoiceChat();
@@ -73,27 +73,25 @@ function InteractiveSessionContent() {
     scenario: string;
     token: string;
   } | null>(null);
-  const [isReady, setIsReady] = useState(false);
-  const [showAutoplayBlockedMessage, setShowAutoplayBlockedMessage] = useState(false);
   const [isAttemptingAutoStart, setIsAttemptingAutoStart] = useState(false);
-  const [hasUserMediaPermission, setHasUserMediaPermission] = useState(false);
+  const [isReady, setIsReady] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isVoiceActive, setIsVoiceActive] = useState(false);
+  const [showAutoplayBlockedMessage, setShowAutoplayBlockedMessage] = useState(false);
+  const [hasUserMediaPermission, setHasUserMediaPermission] = useState(false);
 
   // ── Refs ─────────────────────────────────────────────────────
-  const recordingTimerRef = useRef<number>(900); // countdown de 15 min
-  const [timerDisplay, setTimerDisplay] = useState('15:00');
-  const messagesRef = useRef<any[]>([]);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const recordedChunks = useRef<Blob[]>([]);
-  const localUserStreamRef = useRef<MediaStream | null>(null);
-  const userCameraRef = useRef<HTMLVideoElement>(null);
   const avatarVideoRef = useRef<HTMLVideoElement>(null);
+  const connectedOnceRef = useRef(false);
   const isFinalizingRef = useRef(false);
-
-  // NUEVO: marcas de tiempo robustas
-  const startedAtRef = useRef<number | null>(null);   // ms desde 1ª conexión real
-  const connectedOnceRef = useRef(false);             // evita re-setear startedAt
+  const localUserStreamRef = useRef<MediaStream | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const messagesRef = useRef<any[]>([]);
+  const recordingTimerRef = useRef<number>(900); // countdown de 15 min
+  const recordedChunks = useRef<Blob[]>([]);
+  const startedAtRef = useRef<number | null>(null); // ms desde 1ª conexión real
+  const [timerDisplay, setTimerDisplay] = useState('15:00');
+  const userCameraRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -128,17 +126,21 @@ function InteractiveSessionContent() {
       localUserStreamRef.current.getTracks().forEach((t) => t.stop());
       localUserStreamRef.current = null;
     }
-    if (userCameraRef.current) userCameraRef.current.srcObject = null;
-    if (mediaRecorderRef.current?.state === 'recording') mediaRecorderRef.current.stop();
+    if (userCameraRef.current) {
+      userCameraRef.current.srcObject = null;
+    }
+    if (mediaRecorderRef.current?.state === 'recording') {
+      mediaRecorderRef.current.stop();
+    }
   }, []);
 
   const startUserCameraRecording = useCallback(() => {
     if (!localUserStreamRef.current || mediaRecorderRef.current?.state === 'recording') return;
     try {
       const recorder = new MediaRecorder(localUserStreamRef.current, {
+        audioBitsPerSecond: 128_000,
         mimeType: 'video/webm; codecs=vp8',
         videoBitsPerSecond: 2_500_000,
-        audioBitsPerSecond: 128_000,
       });
       recordedChunks.current = [];
       recorder.ondataavailable = (e) => e.data.size && recordedChunks.current.push(e.data);
@@ -162,11 +164,13 @@ function InteractiveSessionContent() {
       const finalize = async () => {
         stopUserCameraRecording();
 
-        const { name, email, scenario, token } = sessionInfo;
+        const { email, name, scenario, token } = sessionInfo;
+
         const userTranscript = sessionMessages
           .filter((m) => m.sender === MessageSender.CLIENT)
           .map((m) => m.content)
           .join('\n');
+
         const avatarTranscript = sessionMessages
           .filter((m) => m.sender === MessageSender.AVATAR)
           .map((m) => m.content)
@@ -185,16 +189,19 @@ function InteractiveSessionContent() {
 
         try {
           let videoS3Key: string | null = null;
+
           if (recordedChunks.current.length) {
             const videoBlob = new Blob(recordedChunks.current, { type: 'video/webm' });
             if (videoBlob.size) {
               const form = new FormData();
               form.append('video', videoBlob, 'user_recording.webm');
+
               const uploadRes = await fetch(`${flaskApiUrl}/upload_video`, {
-                method: 'POST',
-                headers: { Authorization: `Bearer ${token}` },
                 body: form,
+                headers: { Authorization: `Bearer ${token}` },
+                method: 'POST',
               });
+
               const uploadJson = await uploadRes.json().catch(() => ({}));
               if (!uploadRes.ok) throw new Error(uploadJson.message || 'Error al subir video');
               videoS3Key = uploadJson.s3_object_key;
@@ -202,19 +209,19 @@ function InteractiveSessionContent() {
           }
 
           const res = await fetch(`${flaskApiUrl}/log_full_session`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              name,
-              email,
-              scenario,
-              conversation: userTranscript,
               avatar_transcript: avatarTranscript,
+              conversation: userTranscript,
               duration,
+              email,
+              name,
+              scenario,
               s3_object_key: videoS3Key,
             }),
+            headers: { 'Content-Type': 'application/json' },
+            method: 'POST',
           });
-          // Lee el body para detectar errores de backend si los hubiera
+
           const json = await res.json().catch(() => ({}));
           if (!res.ok || json.status === 'error') {
             throw new Error(json.message || `Error HTTP ${res.status}`);
@@ -235,7 +242,7 @@ function InteractiveSessionContent() {
         finalize();
       }
     },
-    [stopAvatar, stopUserCameraRecording, router, sessionInfo]
+    [router, sessionInfo, stopAvatar, stopUserCameraRecording]
   );
 
   // ── Access token helper ─────────────────────────────────────
@@ -294,15 +301,15 @@ function InteractiveSessionContent() {
       }
     },
     [
-      hasUserMediaPermission,
-      fetchAccessToken,
-      initAvatar,
       config,
+      fetchAccessToken,
+      handleStreamingTalkingMessage,
+      handleUserTalkingMessage,
+      hasUserMediaPermission,
+      initAvatar,
       startAvatar,
       startVoiceChat,
       stopAndFinalizeSession,
-      handleUserTalkingMessage,
-      handleStreamingTalkingMessage,
     ]
   );
 
@@ -328,12 +335,12 @@ function InteractiveSessionContent() {
   useEffect(() => {
     const getUserMediaStream = async () => {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
+        const streamLocal = await navigator.mediaDevices.getUserMedia({
           audio: true,
-          video: { width: 640, height: 480, frameRate: 15 },
+          video: { frameRate: 15, height: 480, width: 640 },
         });
-        localUserStreamRef.current = stream;
-        if (userCameraRef.current) userCameraRef.current.srcObject = stream;
+        localUserStreamRef.current = streamLocal;
+        if (userCameraRef.current) userCameraRef.current.srcObject = streamLocal;
         setHasUserMediaPermission(true);
       } catch (err) {
         console.error('❌ Error al obtener permisos:', err);
@@ -345,20 +352,17 @@ function InteractiveSessionContent() {
 
   // ── Start recording + MARCA DE INICIO en 1ª conexión ────────
   useEffect(() => {
-    if (
-      sessionState === StreamingAvatarSessionState.CONNECTED &&
-      hasUserMediaPermission
-    ) {
+    if (sessionState === StreamingAvatarSessionState.CONNECTED && hasUserMediaPermission) {
       if (!connectedOnceRef.current) {
         connectedOnceRef.current = true;
-        startedAtRef.current = Date.now();     // *** AQUÍ MARCAMOS INICIO REAL ***
-        recordingTimerRef.current = 900;       // (opcional) re-sincroniza countdown
+        startedAtRef.current = Date.now(); // *** MARCA DE INICIO REAL ***
+        recordingTimerRef.current = 900; // (opcional) re-sincroniza countdown
       }
       if (!mediaRecorderRef.current) {
         startUserCameraRecording();
       }
     }
-  }, [sessionState, hasUserMediaPermission, startUserCameraRecording]);
+  }, [hasUserMediaPermission, sessionState, startUserCameraRecording]);
 
   // ── Bind remote stream to video tag ─────────────────────────
   useEffect(() => {
@@ -378,7 +382,9 @@ function InteractiveSessionContent() {
     if (sessionState === StreamingAvatarSessionState.CONNECTED) {
       id = setInterval(() => {
         recordingTimerRef.current -= 1;
-        const m = Math.floor(recordingTimerRef.current / 60).toString().padStart(2, '0');
+        const m = Math.floor(recordingTimerRef.current / 60)
+          .toString()
+          .padStart(2, '0');
         const s = (recordingTimerRef.current % 60).toString().padStart(2, '0');
         setTimerDisplay(`${m}:${s}`);
         if (recordingTimerRef.current <= 0) {
@@ -407,8 +413,8 @@ function InteractiveSessionContent() {
   // ── Loading guard ------------------------------------------------
   if (!isReady) {
     return (
-      <div className="w-screen h-screen flex flex-col items-center justify-center bg-zinc-900 text-white">
-        <LoadingIcon className="w-10 h-10 animate-spin" />
+      <div className="flex h-screen w-screen flex-col items-center justify-center bg-zinc-900 text-white">
+        <LoadingIcon className="h-10 w-10 animate-spin" />
         <p className="mt-4">Verificando datos de sesión...</p>
       </div>
     );
@@ -416,49 +422,53 @@ function InteractiveSessionContent() {
 
   // ── Main UI -----------------------------------------------------
   return (
-    <div className="w-screen h-screen flex flex-col items-center bg-zinc-900 text-white relative">
-      <h1 className="text-3xl font-bold text-blue-400 mt-6 mb-4" suppressHydrationWarning>
+    <div className="relative flex h-screen w-screen flex-col items-center bg-zinc-900 text-white">
+      <h1 className="mt-6 mb-4 text-3xl font-bold text-blue-400" suppressHydrationWarning>
         {`🧠 Leo – ${sessionInfo?.scenario || ''}`}
       </h1>
 
-      {sessionState === StreamingAvatarSessionState.INACTIVE && !hasUserMediaPermission && !showAutoplayBlockedMessage && (
-        <p className="text-zinc-300 mb-6">Solicitando permisos...</p>
-      )}
+      {sessionState === StreamingAvatarSessionState.INACTIVE &&
+        !hasUserMediaPermission &&
+        !showAutoplayBlockedMessage && <p className="mb-6 text-zinc-300">Solicitando permisos...</p>}
+
       {showAutoplayBlockedMessage && (
-        <div className="text-red-400 mb-6 text-center">
+        <div className="mb-6 text-center text-red-400">
           Permisos de cámara/micrófono denegados o no disponibles.
         </div>
       )}
 
       {/* Video area */}
-      <div className="relative w-full max-w-4xl flex flex-col md:flex-row items-center justify-center gap-5 p-4">
+      <div className="relative flex w-full max-w-4xl flex-col items-center justify-center gap-5 p-4 md:flex-row">
         {/* Avatar video */}
-        <div className="relative w-full md:w-1/2 aspect-video min-h-[300px] flex items-center justify-center bg-zinc-800 rounded-lg shadow-lg overflow-hidden">
+        <div className="relative flex min-h-[300px] w-full items-center justify-center overflow-hidden rounded-lg bg-zinc-800 shadow-lg md:w-1/2">
           {sessionState !== StreamingAvatarSessionState.INACTIVE ? (
             <AvatarVideo ref={avatarVideoRef} />
           ) : (
-            !showAutoplayBlockedMessage && <AvatarConfig config={config} onConfigChange={setConfig} />
+            !showAutoplayBlockedMessage && <AvatarConfig onConfigChange={setConfig} config={config} />
           )}
 
           {showAutoplayBlockedMessage && (
-            <div className="absolute inset-0 bg-black/75 flex flex-col items-center justify-center text-center p-4 z-30">
+            <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/75 p-4 text-center">
               <p className="mb-4 text-lg font-semibold">Video y Audio Bloqueados</p>
               <p className="mb-6">Haz clic para reintentar.</p>
-              <Button onClick={handleAutoplayRetry} className="bg-blue-600 hover:bg-blue-700">
+              <Button
+                className="bg-blue-600 text-white hover:bg-blue-700"
+                onClick={handleAutoplayRetry}
+              >
                 Habilitar
               </Button>
             </div>
           )}
 
           {sessionState === StreamingAvatarSessionState.CONNECTING && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-20">
-              <LoadingIcon className="w-10 h-10 animate-spin" />
+            <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/50">
+              <LoadingIcon className="h-10 w-10 animate-spin" />
               <span className="ml-2">Conectando…</span>
             </div>
           )}
 
           {sessionState === StreamingAvatarSessionState.CONNECTED && (
-            <div className="absolute top-2 left-2 bg-black/70 text-white text-sm px-3 py-1 rounded-full z-10">
+            <div className="absolute left-2 top-2 z-10 rounded-full bg-black/70 px-3 py-1 text-sm text-white">
               Grabando: {timerDisplay}
             </div>
           )}
@@ -467,29 +477,29 @@ function InteractiveSessionContent() {
         {/* User camera */}
         <div className="w-full md:w-1/2">
           <video
-            ref={userCameraRef}
             autoPlay
+            className="aspect-video w-full rounded-lg border border-blue-500 bg-black object-cover"
             muted
             playsInline
-            className="rounded-lg border border-blue-500 w-full aspect-video object-cover bg-black"
+            ref={userCameraRef}
           />
         </div>
       </div>
 
       {/* Controls */}
-      <div className="flex flex-col gap-3 items-center justify-center p-4 border-t border-zinc-700 w-full mt-6">
+      <div className="mt-6 flex w-full flex-col items-center justify-center gap-3 border-t border-zinc-700 p-4">
         {/* Arranque inicial */}
         {sessionState === StreamingAvatarSessionState.INACTIVE && !showAutoplayBlockedMessage && (
           <div className="flex flex-row gap-4">
             <Button
-              onClick={() => startHeyGenSession(true)}
               disabled={isAttemptingAutoStart || !hasUserMediaPermission}
+              onClick={() => startHeyGenSession(true)}
             >
               Iniciar Chat de Voz
             </Button>
             <Button
-              onClick={() => startHeyGenSession(false)}
               disabled={isAttemptingAutoStart || !hasUserMediaPermission}
+              onClick={() => startHeyGenSession(false)}
             >
               Iniciar Chat de Texto
             </Button>
@@ -505,8 +515,8 @@ function InteractiveSessionContent() {
           <>
             <AvatarControls />
             <Button
-              onClick={() => stopAndFinalizeSession(messagesRef.current)}
               className="bg-red-600 hover:bg-red-700"
+              onClick={() => stopAndFinalizeSession(messagesRef.current)}
             >
               Finalizar Sesión
             </Button>
@@ -516,10 +526,15 @@ function InteractiveSessionContent() {
 
       {sessionState === StreamingAvatarSessionState.CONNECTED && <MessageHistory />}
 
-      <footer className="mt-auto mb-5 text-sm text-zinc-500 text-center w-full">
+      <footer className="mt-auto mb-5 w-full text-center text-sm text-zinc-500">
         <p>
           Desarrollado por{' '}
-          <a href="https://www.teams.com.mx" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">
+          <a
+            className="text-blue-400 hover:underline"
+            href="https://www.teams.com.mx"
+            rel="noopener noreferrer"
+            target="_blank"
+          >
             Teams
           </a>{' '}
           © 2025
@@ -529,8 +544,8 @@ function InteractiveSessionContent() {
       {/* Overlay de subida / análisis IA */}
       {isUploading && (
         <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/80 text-white backdrop-blur-sm">
-          <LoaderCircle className="h-12 w-12 animate-spin mb-6" />
-          <p className="text-lg text-center px-4">Subiendo a servidores para&nbsp;análisis&nbsp;IA…</p>
+          <LoaderCircle className="mb-6 h-12 w-12 animate-spin" />
+          <p className="px-4 text-lg">Subiendo a servidores para&nbsp;análisis&nbsp;IA…</p>
         </div>
       )}
     </div>
