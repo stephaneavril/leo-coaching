@@ -167,7 +167,7 @@ function InteractiveSessionContent() {
           .filter((m) => m.sender === MessageSender.AVATAR)
           .map((m) => m.content)
           .join('\n');
-        const duration = 480 - recordingTimerRef.current;
+        const duration = Math.max(0, 900 - recordingTimerRef.current); // 900s = 15min de tu countdown
         const flaskApiUrl = process.env.NEXT_PUBLIC_FLASK_API_URL || '';
 
         try {

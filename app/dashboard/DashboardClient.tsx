@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
@@ -71,14 +71,45 @@ export default function DashboardClient({
     );
   }
 
-  // ─── Destructuración ─────────────────────────
+  // ──────────────────────────────────────────────
+  // 2) Estado local + polling para refrescar la barra y el historial
+  // ──────────────────────────────────────────────
+  const [data, setData] = useState<DashboardData>(initialData);
+  const bearer = data?.user_token || initialData.user_token;
+  const FLASK = process.env.NEXT_PUBLIC_FLASK_API_URL || '';
+
+  useEffect(() => {
+    if (!bearer || !FLASK) return;
+
+    const id = setInterval(async () => {
+      try {
+        const res = await fetch(`${FLASK}/dashboard_data`, {
+          method: 'GET',
+          headers: { Authorization: `Bearer ${bearer}` },
+          credentials: 'include',
+        });
+        if (res.ok) {
+          const fresh: DashboardData = await res.json();
+          setData(fresh); // <- actualiza used_seconds y sesiones
+        }
+      } catch {
+        // Silenciar errores de red intermitentes
+      }
+    }, 10000); // 10s
+
+    return () => clearInterval(id);
+  }, [bearer, FLASK]);
+
+  // ─── Destructuración usando estado local (con fallback) ─────
+  const current = data || initialData;
+
   const {
     name: userName,
     email,
     user_token,
     sessions = [],
     used_seconds: usedSeconds = 0,
-  } = initialData;
+  } = current;
 
   // Normaliza registros
   const records: SessionRecord[] = sessions.map((s) => ({
@@ -263,10 +294,8 @@ export default function DashboardClient({
           <div className="voice-alert" role="alert" aria-live="polite">
             <strong>⚠️ Para que la voz funcione bien:</strong>
             <ul>
-              
               <li>Permite <strong>micrófono y cámara</strong> cuando el navegador lo pida.</li>
               <li>Haz clic en INICIAR, después <strong>“Iniciar Chat de Voz”</strong>, después clic en TEXT CHAT y justo después clic en VOICE CHAT.</li>
-            
               <li>Preferible usar <strong>audífonos</strong> para evitar eco.</li>
             </ul>
           </div>

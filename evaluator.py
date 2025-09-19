@@ -178,7 +178,7 @@ def evaluate_interaction(manager_text: str, leo_text: str, video_path: Optional[
         Recibirás dos bloques: (1) texto del GERENTE (coach) y (2) texto de LEO (coachee).
         Evalúa SOLO el desempeño del GERENTE. Devuelve JSON EXACTO:
         {
-          "public_summary": "<máx 120 palabras, empático y accionable>",
+          "public_summary": "<máx 120 palabras, empático y accionable, dirigido al COACH humano (no a LEO). Usa segunda persona ('tú') para dar feedback al coach. Nunca te dirijas a LEO.>",
           "internal_analysis": {
             "overall": "<2-3 frases objetivas>",
             "GROW": {
