@@ -31,11 +31,11 @@ import { MessageHistory } from '@/components/AvatarSession/MessageHistory';
 import { LoaderCircle } from 'lucide-react';
 
 // ───────────────────────────────────────────────────────────────
-// Default HeyGen avatar config (ajusta avatarName/knowledgeId si ya tienes el final de LEO)
+// Config de HeyGen
 // ───────────────────────────────────────────────────────────────
 const DEFAULT_CONFIG: StartAvatarRequest = {
   quality: AvatarQuality.Low,
-  avatarName: 'Graham_Chair_Sitting_public', // ← pon aquí el asset final de LEO si corresponde
+  avatarName: 'Graham_Chair_Sitting_public',
   knowledgeId: 'bca7f7c812cf49caabe462699a579b44',
   language: 'es',
   voice: {
@@ -78,10 +78,10 @@ function InteractiveSessionContent() {
   const [isAttemptingAutoStart, setIsAttemptingAutoStart] = useState(false);
   const [hasUserMediaPermission, setHasUserMediaPermission] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
-  const [isVoiceActive, setIsVoiceActive] = useState(false); // ← recuperado del viejo
+  const [isVoiceActive, setIsVoiceActive] = useState(false);
 
   // ── Refs ─────────────────────────────────────────────────────
-  const recordingTimerRef = useRef<number>(900);
+  const recordingTimerRef = useRef<number>(900); // countdown de 15 min
   const [timerDisplay, setTimerDisplay] = useState('15:00');
   const messagesRef = useRef<any[]>([]);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -90,6 +90,10 @@ function InteractiveSessionContent() {
   const userCameraRef = useRef<HTMLVideoElement>(null);
   const avatarVideoRef = useRef<HTMLVideoElement>(null);
   const isFinalizingRef = useRef(false);
+
+  // NUEVO: marcas de tiempo robustas
+  const startedAtRef = useRef<number | null>(null);   // ms desde 1ª conexión real
+  const connectedOnceRef = useRef(false);             // evita re-setear startedAt
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -153,7 +157,7 @@ function InteractiveSessionContent() {
       setIsUploading(true);
 
       stopAvatar();
-      setIsVoiceActive(false); // ← baja flag voz
+      setIsVoiceActive(false);
 
       const finalize = async () => {
         stopUserCameraRecording();
@@ -167,7 +171,16 @@ function InteractiveSessionContent() {
           .filter((m) => m.sender === MessageSender.AVATAR)
           .map((m) => m.content)
           .join('\n');
-        const duration = Math.max(0, 900 - recordingTimerRef.current); // 900s = 15min de tu countdown
+
+        // DURACIÓN ROBUSTA: timestamps + fallback al countdown
+        let duration = 0;
+        if (startedAtRef.current) {
+          duration = Math.floor((Date.now() - startedAtRef.current) / 1000);
+        } else {
+          duration = Math.max(0, 900 - recordingTimerRef.current);
+        }
+        duration = Math.max(0, Math.min(900, duration)); // blinda 0–900
+
         const flaskApiUrl = process.env.NEXT_PUBLIC_FLASK_API_URL || '';
 
         try {
@@ -182,13 +195,13 @@ function InteractiveSessionContent() {
                 headers: { Authorization: `Bearer ${token}` },
                 body: form,
               });
-              const uploadJson = await uploadRes.json();
-              if (!uploadRes.ok) throw new Error(uploadJson.message || 'Error desconocido');
+              const uploadJson = await uploadRes.json().catch(() => ({}));
+              if (!uploadRes.ok) throw new Error(uploadJson.message || 'Error al subir video');
               videoS3Key = uploadJson.s3_object_key;
             }
           }
 
-          await fetch(`${flaskApiUrl}/log_full_session`, {
+          const res = await fetch(`${flaskApiUrl}/log_full_session`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -201,9 +214,14 @@ function InteractiveSessionContent() {
               s3_object_key: videoS3Key,
             }),
           });
+          // Lee el body para detectar errores de backend si los hubiera
+          const json = await res.json().catch(() => ({}));
+          if (!res.ok || json.status === 'error') {
+            throw new Error(json.message || `Error HTTP ${res.status}`);
+          }
         } catch (err: any) {
           console.error('❌ Error finalizando sesión:', err);
-          alert(`⚠️ ${err.message}`);
+          alert(`⚠️ ${err.message || 'Ocurrió un problema guardando tu sesión.'}`);
           setIsUploading(false);
         } finally {
           router.push('/dashboard');
@@ -227,7 +245,7 @@ function InteractiveSessionContent() {
     return res.text();
   }, []);
 
-  // ── Start session with HeyGen (voz arranca en STREAM_READY) ──
+  // ── Start session with HeyGen ────────────────────────────────
   const startHeyGenSession = useCallback(
     async (withVoice: boolean) => {
       if (!hasUserMediaPermission) {
@@ -240,12 +258,10 @@ function InteractiveSessionContent() {
         const avatar = initAvatar(heygenToken);
 
         avatar.on(StreamingEvents.USER_TALKING_MESSAGE, (e) => {
-          console.log('USER_STT:', e.detail);
           handleUserTalkingMessage({ detail: e.detail });
         });
 
         avatar.on(StreamingEvents.AVATAR_TALKING_MESSAGE, (e) => {
-          console.log('AVATAR_TTS:', e.detail);
           handleStreamingTalkingMessage({ detail: e.detail });
         });
 
@@ -256,23 +272,20 @@ function InteractiveSessionContent() {
 
         avatar.on(StreamingEvents.STREAM_READY, async () => {
           setIsAttemptingAutoStart(false);
-          // saludo breve para “destrabar” audio/autoplay en algunos navegadores
           try {
             await (avatar as any)?.speakText?.('Hola, ya te escucho. Cuando quieras, empezamos.');
           } catch {}
-
           if (withVoice) {
             try {
-              await startVoiceChat(); // arrancar voz solo cuando el stream esté listo
+              await startVoiceChat();
               setIsVoiceActive(true);
-              console.log('startVoiceChat OK');
             } catch (e) {
               console.error('startVoiceChat falló:', e);
             }
           }
         });
 
-        await startAvatar(config); // levanta el stream (no inicies voz aquí)
+        await startAvatar(config);
       } catch (err: any) {
         console.error('Error iniciando sesión con HeyGen:', err);
         setShowAutoplayBlockedMessage(true);
@@ -303,7 +316,6 @@ function InteractiveSessionContent() {
       try {
         await startVoiceChat();
         setIsVoiceActive(true);
-        console.log('startVoiceChat OK (sesión ya conectada)');
       } catch (e) {
         console.error('startVoiceChat falló:', e);
       }
@@ -331,14 +343,20 @@ function InteractiveSessionContent() {
     if (isReady) getUserMediaStream();
   }, [isReady]);
 
-  // ── Start recording when avatar connects ────────────────────
+  // ── Start recording + MARCA DE INICIO en 1ª conexión ────────
   useEffect(() => {
     if (
       sessionState === StreamingAvatarSessionState.CONNECTED &&
-      hasUserMediaPermission &&
-      !mediaRecorderRef.current
+      hasUserMediaPermission
     ) {
-      startUserCameraRecording();
+      if (!connectedOnceRef.current) {
+        connectedOnceRef.current = true;
+        startedAtRef.current = Date.now();     // *** AQUÍ MARCAMOS INICIO REAL ***
+        recordingTimerRef.current = 900;       // (opcional) re-sincroniza countdown
+      }
+      if (!mediaRecorderRef.current) {
+        startUserCameraRecording();
+      }
     }
   }, [sessionState, hasUserMediaPermission, startUserCameraRecording]);
 
@@ -354,7 +372,7 @@ function InteractiveSessionContent() {
     }
   }, [stream]);
 
-  // ── Timer countdown ─────────────────────────────────────────
+  // ── Timer countdown (visual) ────────────────────────────────
   useEffect(() => {
     let id: NodeJS.Timeout | undefined;
     if (sessionState === StreamingAvatarSessionState.CONNECTED) {
@@ -478,7 +496,7 @@ function InteractiveSessionContent() {
           </div>
         )}
 
-        {/* Si ya estoy conectado pero la voz aún no está activa, muestro botón para encender mic */}
+        {/* Si ya estoy conectado pero la voz aún no está activa */}
         {sessionState === StreamingAvatarSessionState.CONNECTED && !isVoiceActive && (
           <Button onClick={handleVoiceChatClick}>Encender voz</Button>
         )}
