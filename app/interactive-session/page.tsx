@@ -1,3 +1,5 @@
+/* eslint-disable prettier/prettier */
+/* eslint-disable react/jsx-sort-props */
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -450,11 +452,10 @@ function InteractiveSessionContent() {
           {showAutoplayBlockedMessage && (
             <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/75 p-4 text-center">
               <p className="mb-4 text-lg font-semibold">Video y Audio Bloqueados</p>
-              <p className="mb-6">Haz clic para reintentar.</p>
-              <Button
-                className="bg-blue-600 text-white hover:bg-blue-700"
-                onClick={handleAutoplayRetry}
-              >
+              <p className="mb-6">
+                Haz clic para reintentar. Permite la cámara y el micrófono en el navegador.
+              </p>
+              <Button className="bg-blue-600 text-white hover:bg-blue-700" onClick={handleAutoplayRetry}>
                 Habilitar
               </Button>
             </div>
@@ -514,10 +515,7 @@ function InteractiveSessionContent() {
         {sessionState === StreamingAvatarSessionState.CONNECTED && (
           <>
             <AvatarControls />
-            <Button
-              className="bg-red-600 hover:bg-red-700"
-              onClick={() => stopAndFinalizeSession(messagesRef.current)}
-            >
+            <Button className="bg-red-600 hover:bg-red-700" onClick={() => stopAndFinalizeSession(messagesRef.current)}>
               Finalizar Sesión
             </Button>
           </>
