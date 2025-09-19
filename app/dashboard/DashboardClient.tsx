@@ -94,7 +94,7 @@ export default function DashboardClient({
   };
 
   const maxSeconds = 1_800; // 30 min
-  const defaultScenario = 'Entrevista con médico';
+  const defaultScenario = 'Coaching con gerente';
 
   return (
     <>
@@ -289,17 +289,16 @@ export default function DashboardClient({
             <ol>
               <li>Elige el escenario de entrenamiento que necesitas.</li>
               <li>Activa cámara y micrófono; verifica que todo funcione.</li>
-              <li>Haz clic en <strong>Iniciar</strong> y saluda al avatar con “Buenos días, Doctora o Buenos días Doctor”.</li>
-              <li>Expón tu objetivo (p. ej., beneficio, evidencia, o cierre de la visita).</li>
-              <li>Aplica el modelo Da Vinci y aborda objeciones brevemente.</li>
-              <li>Dispones de 8 minutos por sesión y 30 minutos al mes.</li>
+              <li>Haz clic en <strong>Iniciar</strong> y saluda al avatar con “Buenos días, ¿como estás?”.</li>
+              <li>Sigue tu plan de GROW de coaching.</li>
+              <li>Dispones de 15 minutos por sesión y 30 minutos al mes.</li>
               <li>Al terminar, desconéctate. Capacitación revisará con IA y publicará tu resumen para la siguiente práctica.</li>
             </ol>
           </section>
 
           <div className="card-grid">
             <div className="card">
-              <h3>Entrevista con Médico</h3>
+              <h3>Coaching con Gerente</h3>
               <Link
                 href={{
                   pathname: '/interactive-session',

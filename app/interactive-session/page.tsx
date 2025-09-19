@@ -52,11 +52,11 @@ const RESOLVED_TRANSPORT: any = (() => {
 // Config por defecto del avatar
 const DEFAULT_CONFIG: StartAvatarRequest = {
   quality: AvatarQuality.Low,
-  avatarName: 'Dexter_Doctor_Sitting2_public',
-  knowledgeId: '13f254b102cf436d8c07b9fb617dbadf',
+  avatarName: 'Graham_Chair_Sitting_public',
+  knowledgeId: 'bca7f7c812cf49caabe462699a579b44',
   language: 'es',
   voice: {
-    voiceId: '742eb247d8eb4f1898f4c7d0776707be',
+    voiceId: '92c8bd8d48f5467ab8a65f5db5d769f6',
     model: ElevenLabsModel.eleven_multilingual_v2,
     rate: 1.15,
     emotion: VoiceEmotion.FRIENDLY,
