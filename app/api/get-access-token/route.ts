@@ -1,31 +1,24 @@
-const HEYGEN_API_KEY = process.env.HEYGEN_API_KEY;
-
+// app/api/start-session/route.ts
 export async function POST() {
-  try {
-    if (!HEYGEN_API_KEY) {
-      throw new Error("API key is missing from .env");
-    }
-    const baseApiUrl = process.env.NEXT_PUBLIC_BASE_API_URL;
+  const HEYGEN_API_KEY = process.env.HEYGEN_API_KEY;
 
-    const res = await fetch(`${baseApiUrl}/v1/streaming.create_token`, {
-      method: "POST",
-      headers: {
-        "x-api-key": HEYGEN_API_KEY,
-      },
-    });
-
-    console.log("Response:", res);
-
-    const data = await res.json();
-
-    return new Response(data.data.token, {
-      status: 200,
-    });
-  } catch (error) {
-    console.error("Error retrieving access token:", error);
-
-    return new Response("Failed to retrieve access token", {
-      status: 500,
-    });
+  if (!HEYGEN_API_KEY) {
+    return new Response("Missing API key", { status: 500 });
   }
+
+  const res = await fetch("https://api.heygen.com/v1/streaming.start", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${HEYGEN_API_KEY}`,
+    },
+    body: JSON.stringify({
+      avatar_name: "SilasHR_public", // o el nuevo nombre
+      knowledge_base_id: "f46a58cb19184e9ab569f00547229c9b", // si usas uno
+      activity_idle_timeout: 3600 // 🔥 esto evita que se congele
+    }),
+  });
+
+  const data = await res.json();
+  return new Response(JSON.stringify(data), { status: 200 });
 }

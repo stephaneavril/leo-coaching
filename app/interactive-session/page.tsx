@@ -262,7 +262,7 @@ function InteractiveSessionContent() {
 
   // Token backend
   const fetchAccessToken = useCallback(async () => {
-    const res = await fetch('/api/get-access-token', { method: 'POST' });
+    const res = await fetch('/api/start-session', { method: 'POST' });
     if (!res.ok) throw new Error(`Fallo al obtener token de acceso: ${res.status}`);
     const txt = await res.text();
     console.log('[HeyGen] Access token length:', txt?.length ?? 0);
