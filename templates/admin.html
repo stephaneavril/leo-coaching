@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Panel de Capacitación – Evaluación de Sesiones</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&family=Open+Sans:wght@400;600&display=swap" rel="stylesheet" />
+
+  <style>
+    :root {
+      --primary-dark: #0c0e2c;
+      --primary-mid: #003559;
+      --primary-light: #00bfff;
+      --secondary-red: #cc0000;
+      --text-dark: #222;
+      --text-light: #e6e8ef;
+      --bg-gray: #f4f6fa;
+      --bg-white: #ffffff;
+      --border: #e0e0e0;
+      --shadow-lg: rgba(0, 0, 0, 0.3);
+      --shadow-sm: rgba(0, 0, 0, 0.05);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body { font-family: 'Open Sans', sans-serif; line-height: 1.55; background: var(--primary-dark); color: var(--text-light); }
+    a { color: var(--primary-light); text-decoration: none; }
+
+    header { display: flex; align-items: center; gap: 16px; padding: 16px 32px;
+      background: linear-gradient(90deg, var(--primary-dark) 0%, var(--primary-mid) 50%, var(--primary-light) 100%);
+      box-shadow: 0 2px 6px rgba(0,0,0,0.45); }
+    header h1 { font-family: 'Montserrat', sans-serif; font-weight: 700; font-size: 28px; color: #fff; }
+
+    .container { max-width: 1200px; margin: 0 auto; padding: 40px 32px; }
+    .section-title { font: 600 24px 'Montserrat', sans-serif; margin: 40px 0 24px; border-bottom: 2px solid var(--primary-light); padding-bottom: 10px; }
+
+    .flash-wrap { margin: 16px 0 0; }
+    .flash { padding: 10px 14px; border-radius: 8px; margin-bottom: 8px; font-weight: 600; }
+    .flash.success { background:#e6fffa; color:#03543f; border-left:4px solid #0e9f6e; }
+    .flash.error   { background:#fff5f5; color:#9b1c1c; border-left:4px solid #c81e1e; }
+
+    .session-entry { background: var(--bg-white); color: var(--text-dark); border-radius: 16px; box-shadow: 0 8px 24px var(--shadow-lg); padding: 24px; margin-bottom: 40px; display: grid; grid-template-columns: 1fr; gap: 24px; }
+    @media (min-width: 1024px) { .session-entry { grid-template-columns: 1fr 380px; } }
+    .session-entry h3 { font: 600 20px 'Montserrat', sans-serif; color: var(--primary-dark); margin-bottom: 12px; border-bottom: 1px solid #eee; padding-bottom: 8px; }
+    .session-info strong { color: #555; }
+
+    video { width: 100%; border: 1px solid var(--primary-light); border-radius: 12px; object-fit: cover; box-shadow: 0 4px 10px rgba(0,0,0,0.15); }
+
+    .chat-log ul { list-style: none; padding: 0; margin: 0; }
+    .chat-log li { display: flex; margin-bottom: 12px; }
+    .bubble { padding: 10px 14px; border-radius: 12px; font-size: 15px; max-width: 100%; }
+    .user .bubble { background: rgba(128,90,213,0.15); border-left: 6px solid #805ad5; }
+    .doctor .bubble { background: rgba(0,191,255,0.15); border-left: 6px solid var(--primary-light); }
+
+    .evaluation { margin-top: 20px; padding: 15px; border-radius: 8px; background: #e0f7fa; border-left: 5px solid #0099cc; color: var(--text-dark); }
+    .evaluation.rh { background: #ffeeee; border-left-color: var(--secondary-red); }
+    .evaluation.rh h4 { color: var(--secondary-red); margin: 15px 0 5px; font: 600 1em 'Montserrat'; }
+    .evaluation.rh em { color:#8a1d1d; font-style: italic; }
+    .evaluation.rh button { background:#af2a2a; color:#fff; }
+    .evaluation.rh button:hover { background:#8f2323; }
+
+    .progress-bar { background: #e9ecef; border-radius: 8px; overflow: hidden; height: 25px; margin-top: 15px; border: 1px solid #dee2e6; }
+    .progress-fill { height: 100%; background: linear-gradient(to right, #00bfff, #007bff); display: flex; align-items: center; justify-content: flex-end; padding-right: 10px; color: #fff; font-weight: bold; font-size: 0.9em; transition: width 0.4s ease-out; }
+
+    form { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 15px; align-items: end; }
+    label { font-weight: 600; color: #555; }
+    input[type='text'], input[type='email'], input[type='date'], textarea {
+      flex: 1; min-width: 150px; padding: 10px 12px; border-radius: 6px; border: 1px solid #ccc;
+      box-shadow: inset 0 1px 3px rgba(0,0,0,0.05); transition: border-color 0.2s ease; font-family: inherit; font-size: 14px;
+    }
+    input:focus, textarea:focus { border-color: var(--primary-light); outline: none; }
+    button { padding: 10px 18px; border: none; border-radius: 6px; background: var(--primary-light); color: #000; font-weight: 600; font-size: 15px; cursor: pointer; transition: background 0.2s ease, transform 0.1s ease; white-space: nowrap; }
+    button:hover { background: #009acd; transform: translateY(-1px); }
+    button:active { transform: translateY(0); }
+    .btn-ghost { background:#6c757d; color:#fff; }
+    .btn-ghost:hover { background:#5a6268; }
+
+    .user-management-actions button[name='toggle'] { background: #ffc107; color: var(--text-dark); }
+    .user-management-actions button[name='toggle']:hover { background: #e0a800; }
+    .user-management-actions button[name='regen_token'] { background: #6c757d; }
+    .user-management-actions button[name='regen_token']:hover { background: #5a6268; }
+
+    /* Historial */
+    .history-box {
+      margin-top: 16px;
+      background:#f7f9ff;
+      border:1px solid #e1e8ff;
+      border-radius:10px;
+      padding:12px
+    }
+    .history-item {
+      background:#fff;
+      border:1px solid #e6eaff;
+      border-radius:8px;
+      padding:8px 10px;
+    }
+
+    footer { text-align: center; padding: 32px; margin-top: 50px; font-size: 0.9em; color: #777; background: var(--bg-white); }
+    footer a { color: var(--primary-light); font-weight: 600; }
+  </style>
+</head>
+
+<body>
+  <header>
+    <h1>📊 Panel de Capacitación – Evaluación de Sesiones</h1>
+  </header>
+
+  <div class="container">
+    <!-- Mensajes flash -->
+    {% with msgs = get_flashed_messages(with_categories=true) %}
+    {% if msgs %}
+      <div class="flash-wrap">
+        {% for cat, m in msgs %}
+          <div class="flash {{cat}}">{{ m }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+    {% endwith %}
+
+    <h2 class="section-title">Resultados de Sesiones Individuales</h2>
+
+    {% for row in data %}
+    <div class="session-entry">
+      <!-- Columna A -->
+      <div>
+        <h3>
+          {{ row[1] }}
+          <span style="font-weight: normal; color: #777">({{ row[2] }})</span>
+        </h3>
+        <p class="session-info">
+          <strong>Escenario:</strong> {{ row[3] }}<br />
+          <strong>Fecha:</strong> {{ row[7] }}
+        </p>
+
+        <!-- Chat intercalado -->
+        <div class="chat-log">
+          {% set u = row[4] %} {% set d = row[5] %} {% set max_len = [u|length, d|length] | max %}
+          <ul>
+            {% for i in range(max_len) %}
+              {% if u[i] is defined and u[i] | trim %}
+              <li class="user"><span class="bubble">{{ u[i] | trim }}</span></li>
+              {% endif %}
+              {% if d[i] is defined and d[i] | trim %}
+              <li class="doctor"><span class="bubble">{{ d[i] | trim }}</span></li>
+              {% endif %}
+            {% endfor %}
+          </ul>
+        </div>
+
+        <!-- Resumen visible al usuario -->
+        <div class="evaluation">
+          <strong>Resumen para usuario:</strong><br />{{ row[8] }}
+        </div>
+
+        {# ====== Card compacta o aviso mínimo ====== #}
+        {% set internal = row[9] %}
+        {% set compact = internal.compact if internal and internal.compact is defined else None %}
+        {% set summary = internal.overall_training_summary or internal.overall_rh_summary %}
+
+        {% if compact %}
+          <div class="evaluation rh">
+            <strong>Análisis para Capacitación:</strong>
+
+            <p style="margin-top:6px">
+              <strong>{{ row[1] or 'Participante' }}</strong>
+              <span style="color:#666">
+                · Sesión: {{ row[7] or 'N/D' }}
+                · <strong>Score:</strong> {{ compact.score_14 }}/14
+                · <strong>Riesgo:</strong> {{ compact.risk }}
+              </span>
+            </p>
+
+            <p style="margin-top:10px"><strong>Fortalezas:</strong>
+              {{ (compact.strengths or []) | join('; ') or '—' }}</p>
+
+            <p><strong>Oportunidades:</strong>
+              {{ (compact.opportunities or []) | join('; ') or '—' }}</p>
+
+            <p><strong>Coaching (3):</strong>
+              {{ (compact.coaching_3 or []) | join('; ') or '—' }}</p>
+
+            <p><strong>Frase guía:</strong>
+              <em>{{ compact.frase_guia or '—' }}</em></p>
+
+            <p><strong>KPI:</strong>
+              {{ (compact.kpis or []) | join('; ') or '—' }}</p>
+
+            <div style="display:flex; gap:8px; margin-top:10px">
+              <button type="button"
+                      onclick="navigator.clipboard.writeText({{ (compact.rh_text or '') | tojson }})">
+                Copiar texto RH
+              </button>
+              <button type="button"
+                      onclick="navigator.clipboard.writeText({{ (compact.user_text or row[8] or '') | tojson }})">
+                Copiar resumen usuario
+              </button>
+            </div>
+          </div>
+
+        {% else %}
+          <!-- AVISO mínimo (sin tablas ni métricas largas) -->
+          <div class="evaluation rh">
+            <strong>Análisis para Capacitación:</strong>
+            <p style="margin:8px 0 0">
+              Formato compacto no disponible para esta sesión.
+              {% if summary %} <br/><strong>Resumen:</strong> {{ summary }}{% endif %}
+            </p>
+          </div>
+        {% endif %}
+
+        <!-- Botón para recomputar análisis -->
+        <form action="/admin/recompute/{{ row[0] }}" method="POST" style="margin-top: 10px">
+          <button type="submit" class="btn-ghost">🔁 Recalcular análisis</button>
+        </form>
+      </div>
+
+      <!-- Columna B -->
+      <div>
+        {% if row[6] and row[6] not in ['Video_Not_Available_Error','Video_Processing_Failed','Video_Missing_Error'] %}
+          <video controls>
+            <source src="{{ row[6] }}" type="video/mp4" />
+            Tu navegador no soporta video.
+          </video>
+        {% else %}
+          <p style="color: gray; text-align: center; margin-bottom: 16px">⏳ Video en procesamiento o no disponible</p>
+        {% endif %}
+
+        <!-- === Publicación y notas (siempre habilitadas) === -->
+        <div style="margin-top: 20px">
+          <!-- Estado de publicación -->
+          {% if row[12] %}
+            <p style="color: green; font-weight: 600; margin-bottom: 12px; text-align: center;">
+              ✅ Publicado al usuario
+            </p>
+          {% else %}
+            <p style="color: #666; font-weight: 600; margin-bottom: 12px; text-align: center;">
+              🔒 Aún no publicado
+            </p>
+          {% endif %}
+
+          <!-- Formulario: comentario PÚBLICO (visible al usuario) -->
+          <form action="/admin/publish_eval/{{ row[0] }}" method="POST" style="margin-top: 10px">
+            <label for="comment_pub_{{ row[0] }}"><strong>Agregar comentario público (visible para el usuario):</strong></label><br />
+            <textarea id="comment_pub_{{ row[0] }}" name="comment_rh" rows="4"
+                      style="width: 100%; margin-top: 6px"
+                      placeholder="Escribe tu comentario para el usuario…"></textarea>
+
+            <!-- (Opcional) mostrar último publicado si el backend lo incluyera como row[13] -->
+            {% if row|length > 13 and row[13] %}
+              <div class="evaluation rh" style="margin-top:10px">
+                <h4>Publicado al usuario (último):</h4>
+                <em>{{ row[13] }}</em>
+              </div>
+            {% endif %}
+
+            <button type="submit" style="margin-top: 10px; width: 100%">➕ Publicar comentario</button>
+          </form>
+
+          <!-- Formulario: NOTA INTERNA (solo RH) -->
+          <form action="/admin/add_note/{{ row[0] }}" method="POST" style="margin-top: 16px">
+            <label for="note_int_{{ row[0] }}"><strong>Agregar nota interna (sólo RH):</strong></label><br />
+            <textarea id="note_int_{{ row[0] }}" name="note_body" rows="3"
+                      style="width: 100%; margin-top: 6px"
+                      placeholder="Escribe una nota interna…"></textarea>
+            <button type="submit" class="btn-ghost" style="margin-top: 10px; width: 100%">📝 Guardar nota interna</button>
+          </form>
+
+          <!-- Botón opcional: publicar análisis IA tal cual -->
+          {% if not row[12] %}
+            <form action="/admin/publish_ai/{{ row[0] }}" method="POST" style="margin-top: 10px">
+              <button type="submit" style="width: 100%; background: #00bfff; color: #000">
+                🤖 Publicar análisis IA tal cual
+              </button>
+            </form>
+          {% endif %}
+
+          <!-- Historial de comentarios (si el backend lo pasa como row[14]) -->
+          {% set comments = row[14] if row|length > 14 else [] %}
+          <div class="history-box">
+            <strong style="display:block; margin-bottom:6px;">Historial de comentarios</strong>
+            {% if comments and comments|length > 0 %}
+              <ul style="list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:8px;">
+                {% for c in comments %}
+                  <li class="history-item">
+                    <div style="display:flex; justify-content:space-between; gap:8px;">
+                      <span style="font-weight:600; color:#334;">{{ c.author or 'Capacitación' }}</span>
+                      <span style="font-size:12px; color:#667;">{{ c.created }}</span>
+                    </div>
+                    <div style="font-size:13px; color:#222; white-space:pre-wrap; margin-top:4px;">
+                      {{ c.body }}
+                    </div>
+                  </li>
+                {% endfor %}
+              </ul>
+            {% else %}
+              <p style="color:#667; margin:0;">Sin comentarios todavía.</p>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+
+    <!-- Resumen de uso -->
+    <h2 class="section-title">📈 Resumen de Tiempo por Usuario</h2>
+    <div class="summary-row">
+      <table>
+        <tr><th>Nombre</th><th>Email</th><th>Minutos usados</th><th>Resumen ejecutivo</th></tr>
+        {% for summary in usage_summaries %}
+          <tr><td>{{ summary.name }}</td><td>{{ summary.email }}</td><td>{{ summary.minutes }}</td><td>{{ summary.summary }}</td></tr>
+        {% endfor %}
+      </table>
+
+      <h3 style="margin-top: 20px">Tiempo Total Usado: {{ total_minutes }} / {{ contracted_minutes }} min</h3>
+      <div class="progress-bar">
+        <div class="progress-fill" style="width: {{ (total_minutes / contracted_minutes) * 100 }}%">
+          <span>{{ (total_minutes / contracted_minutes) * 100 | round(1) }}%</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Resumen desempeño -->
+    <h2 class="section-title">⭐ Resumen de Desempeño por Usuario</h2>
+    <div class="summary-row">
+      <table>
+        <tr><th>Nombre</th><th>Email</th><th>Sesiones consideradas</th><th>Alertas</th><th>Última sesión</th></tr>
+        {% if performance_summaries and performance_summaries|length > 0 %}
+          {% for p in performance_summaries %}
+            <tr><td>{{ p.name }}</td><td>{{ p.email }}</td><td>{{ p.sessions_published }}</td><td>{{ p.red_flags }}</td><td>{{ p.last_date }}</td></tr>
+          {% endfor %}
+        {% else %}
+          <tr><td colspan="5" style="text-align:center;color:#777">Sin datos aún</td></tr>
+        {% endif %}
+      </table>
+    </div>
+
+    <!-- Gestión de usuarios -->
+    <h2 class="section-title">🔐 Gestión de Usuarios</h2>
+    <div class="users-section">
+      <h3>Crear nuevo usuario (si no existe) / Ingresar a Dashboard (si ya está creado)</h3>
+
+      <form id="userForm" onsubmit="return handleUserSubmit(event)">
+        <label>Nombre:<input type="text" name="name" placeholder="Nombre" required /></label>
+        <label>Correo electrónico:<input type="email" name="email" placeholder="Correo electrónico" required /></label>
+        <label>Token:<input type="text" name="token" placeholder="(déjalo vacío para crear)" /></label>
+        <button type="submit">Ingresar a Dashboard</button>
+      </form>
+
+      <table style="margin-top: 20px">
+        <tr><th>Nombre</th><th>Email</th><th>Token</th><th>Rango de Fechas</th><th>Activo</th><th>Acciones</th></tr>
+        {% for user in users %}
+          <tr>
+            <td>{{ user[1] }}</td>
+            <td>{{ user[2] }}</td>
+            <td>{{ user[6] }}</td>
+            <td>{{ user[3] }} – {{ user[4] }}</td>
+            <td>{{ 'Sí' if user[5] else 'No' }}</td>
+            <td>
+              <form class="user-management-actions" action="/admin" method="POST">
+                <input type="hidden" name="user_id" value="{{ user[0] }}" />
+                <button type="submit" name="action" value="toggle">{{ 'Desactivar' if user[5] else 'Activar' }}</button>
+                <button type="submit" name="action" value="regen_token">Nuevo Token</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </table>
+    </div>
+  </div>
+
+  <footer>
+    <p>Desarrollado por <a href="https://www.teams.com.mx" target="_blank">Teams</a> © 2025</p>
+  </footer>
+
+  <script>
+    async function handleUserSubmit(e) {
+      e.preventDefault();
+      const f = e.target;
+      const name = f.elements.name.value.trim();
+      const email = f.elements.email.value.trim();
+      const token = f.elements.token.value.trim();
+
+      if (!token) {
+        const res = await fetch('/admin/users', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, email })
+        });
+        if (res.ok) { location.reload(); } else { alert('Error al crear usuario'); }
+        return false;
+      }
+
+      window.open(`https://leo-medico.onrender.com/dashboard?auth=${encodeURIComponent(token)}`, '_blank');
+      return false;
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,81 @@
+services:
+  # ─────────── REDIS (cola Celery) ───────────
+  - type: redis
+    name: leo-coaching-redis
+    plan: starter
+    ipAllowList:
+      - source: 0.0.0.0/0
+        description: allow all
+
+  # ─────────── BACKEND FLASK ───────────
+  - type: web
+    name: leo-coaching-backend
+    env: python
+    region: oregon
+    branch: main
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    plan: pro
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_S3_BUCKET_NAME
+        value: leocoach
+      - key: AWS_S3_REGION_NAME
+        value: us-east-1
+      - key: REDIS_URL
+        fromService:
+          name: leo-trainer-redis
+          type: redis
+          property: connectionString
+
+    # ─────────── CELERY WORKER (Docker) ───────────
+  - type: worker
+    name: leo-coaching-worker
+    env: docker
+    region: oregon
+    branch: main
+    dockerfilePath: ./Dockerfile
+    plan: pro
+    autoscale:
+      minInstances: 1   # mantiene 1 vivo
+      maxInstances: 1
+    # Prefork real (no “solo”), 4 procesos
+    command: >
+      celery -A celery_worker:celery_app worker
+      --pool=prefork --concurrency=8
+      --loglevel=info --hostname=worker1@%h
+      --heartbeat-interval=30
+      --soft-time-limit=900 --time-limit=960
+    autoDeploy: true
+    autoRestart: always
+    envVars:
+      - key: C_FORCE_ROOT
+        value: "true"
+      - key: DATABASE_URL
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_S3_BUCKET_NAME
+        value: leocoach
+      - key: AWS_S3_REGION_NAME
+        value: us-east-1
+      - key: REDIS_URL
+        fromService:
+          name: leo-trainer-redis
+          type: redis
+          property: connectionString
