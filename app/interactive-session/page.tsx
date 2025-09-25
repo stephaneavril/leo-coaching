@@ -53,7 +53,7 @@ const RESOLVED_TRANSPORT: any = (() => {
 const DEFAULT_CONFIG: StartAvatarRequest = {
   quality: AvatarQuality.Low,
   avatarName: 'SilasHR_public',
-  knowledgeId: 'bca7f7c812cf49caabe462699a579b44',
+  knowledgeId: 'f46a58cb19184e9ab569f00547229c9b',
   language: 'es',
   voice: {
     voiceId: '82d534d580f04edb8e4701f6f00f92ea',
