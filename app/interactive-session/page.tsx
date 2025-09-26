@@ -29,20 +29,9 @@ import { LoadingIcon } from '@/components/Icons';
 import { MessageHistory } from '@/components/AvatarSession/MessageHistory';
 import { LoaderCircle } from 'lucide-react';
 
-
-/** Preferencia por WebRTC si existe; si no, WS */
-const RESOLVED_TRANSPORT: any = (() => {
-  const vct: any = VoiceChatTransport as any;
-  const pick =
-    vct?.WEBRTC ??
-    vct?.WEBSOCKET ??
-    vct?.WS ??
-    (Array.isArray(Object.values(vct)) ? Object.values(vct)[0] : undefined);
-  // @ts-ignore
-  console.log('[HeyGen] Transport enum keys:', Object.keys(VoiceChatTransport || {}));
-  console.log('[HeyGen] RESOLVED_TRANSPORT ⇒', pick);
-  return pick;
-})();
+/** Preferencia fija: WEBRTC (si no, cae a WS) */
+const RESOLVED_TRANSPORT =
+  (VoiceChatTransport as any)?.WEBRTC ?? VoiceChatTransport.WEBSOCKET;
 
 /** Config por defecto del avatar */
 const DEFAULT_CONFIG: StartAvatarRequest = {
@@ -92,7 +81,6 @@ function InteractiveSessionContent() {
   const [isVoiceActive, setIsVoiceActive] = useState(false);
 
   // Refs
-  
   const avatarRef = useRef<any>(null);
   const voiceStartedOnceRef = useRef(false);
   const reconnectingRef = useRef(false);
@@ -100,8 +88,9 @@ function InteractiveSessionContent() {
   const firstUserTurnFallbackRef = useRef(false);
   const lastAvatarTTSAtRef = useRef<number>(0);
   const keepAliveIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const heygenSessionIdRef = useRef<string | null>(null); // session_id para keep-alive
 
-  // 8 minutos (puedes subirlo sin problema)
+  // 8 minutos
   const recordingTimerRef = useRef<number>(480);
   const [timerDisplay, setTimerDisplay] = useState('08:00');
 
@@ -113,39 +102,72 @@ function InteractiveSessionContent() {
   const avatarVideoRef = useRef<HTMLVideoElement>(null);
   const isFinalizingRef = useRef(false);
 
-  useEffect(() => { messagesRef.current = messages; }, [messages]);
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
-  /** ---------- Helper para hablar ---------- */
-
-  const startKeepAlive = useCallback((sessionId: string) => {
-  // limpia si ya había un intervalo
-  if (keepAliveIntervalRef.current) {
-    clearInterval(keepAliveIntervalRef.current);
-    keepAliveIntervalRef.current = null;
-  }
-
-  keepAliveIntervalRef.current = setInterval(async () => {
-    try {
-      await fetch("/api/keep-alive", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: sessionId }),
-      });
-      console.log("[keep-alive] enviado");
-    } catch (e) {
-      console.error("[keep-alive] fallo:", e);
-    }
-  }, 45_000); // cada 45s
-}, []);
-
+  /** ---------- Helper para speak ---------- */
   const trySpeak = useCallback(async (text: string) => {
     const a: any = avatarRef.current;
     if (!a) return;
     try {
-      if (typeof a.speakText === 'function')      await a.speakText(text);
-      else if (typeof a.say === 'function')       await a.say(text);
-      else if (typeof a.send === 'function')      await a.send(text);
-    } catch (e) { console.warn('trySpeak fallback warning:', e); }
+      if (typeof a.speakText === 'function') await a.speakText(text);
+      else if (typeof a.say === 'function') await a.say(text);
+      else if (typeof a.send === 'function') await a.send(text);
+    } catch (e) {
+      console.warn('trySpeak fallback warning:', e);
+    }
+  }, []);
+
+  /** ---------- Keep-alive (cada 30s + primer ping inmediato) ---------- */
+  const startKeepAlive = useCallback((sessionId: string) => {
+    if (keepAliveIntervalRef.current) {
+      clearInterval(keepAliveIntervalRef.current);
+      keepAliveIntervalRef.current = null;
+    }
+
+    const send = async () => {
+      try {
+        const r = await fetch('/api/keep-alive', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session_id: sessionId }),
+          cache: 'no-store',
+        });
+        if (!r.ok) {
+          const txt = await r.text();
+          console.warn('[keep-alive] fallo', r.status, txt);
+        } else {
+          console.log('[keep-alive] OK', sessionId);
+        }
+      } catch (e) {
+        console.warn('[keep-alive] error de red:', e);
+      }
+    };
+
+    // primer ping y luego cada 30 s
+    send();
+    keepAliveIntervalRef.current = setInterval(send, 30_000);
+  }, []);
+
+  /** ---------- Pings al volver al foco/visibilidad ---------- */
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === 'visible' && heygenSessionIdRef.current) {
+        fetch('/api/keep-alive', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session_id: heygenSessionIdRef.current }),
+          cache: 'no-store',
+        }).catch(() => {});
+      }
+    };
+    document.addEventListener('visibilitychange', onVis);
+    window.addEventListener('focus', onVis);
+    return () => {
+      document.removeEventListener('visibilitychange', onVis);
+      window.removeEventListener('focus', onVis);
+    };
   }, []);
 
   /** ---------- Leer URL/JWT ---------- */
@@ -199,68 +221,94 @@ function InteractiveSessionContent() {
   }, []);
 
   /** ---------- Finalizar + subir ---------- */
-  const stopAndFinalizeSession = useCallback(async (sessionMessages: any[]) => {
-    if (isFinalizingRef.current || !sessionInfo) return;
-    isFinalizingRef.current = true;
-    setIsUploading(true);
+  const stopAndFinalizeSession = useCallback(
+    async (sessionMessages: any[]) => {
+      if (isFinalizingRef.current || !sessionInfo) return;
+      isFinalizingRef.current = true;
+      setIsUploading(true);
 
-    try { stopAvatar(); } catch {}
-    setIsVoiceActive(false);
-
-    const finalize = async () => {
-      stopUserCameraRecording();
-
-      const { name, email, scenario, token } = sessionInfo;
-      const userTranscript = sessionMessages.filter(m => m.sender === MessageSender.CLIENT).map(m => m.content).join('\n');
-      const avatarTranscript = sessionMessages.filter(m => m.sender === MessageSender.AVATAR).map(m => m.content).join('\n');
-      const duration = 480 - recordingTimerRef.current;
-      const flaskApiUrl = process.env.NEXT_PUBLIC_FLASK_API_URL || '';
+      // apaga keep-alive
+      if (keepAliveIntervalRef.current) {
+        clearInterval(keepAliveIntervalRef.current);
+        keepAliveIntervalRef.current = null;
+      }
 
       try {
-        let videoS3Key: string | null = null;
-        if (recordedChunks.current.length) {
-          const videoBlob = new Blob(recordedChunks.current, { type: 'video/webm' });
-          if (videoBlob.size) {
-            const form = new FormData();
-            form.append('video', videoBlob, 'user_recording.webm');
-            const uploadRes = await fetch(`${flaskApiUrl}/upload_video`, {
-              method: 'POST',
-              headers: { Authorization: `Bearer ${token}` },
-              body: form,
-            });
-            const uploadJson = await uploadRes.json();
-            if (!uploadRes.ok) throw new Error(uploadJson.message || 'Error desconocido');
-            videoS3Key = uploadJson.s3_object_key;
-          }
-        }
+        try {
+          stopAvatar();
+        } catch {}
+        setIsVoiceActive(false);
 
-        await fetch(`${flaskApiUrl}/log_full_session`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name, email, scenario,
-            conversation: userTranscript,
-            avatar_transcript: avatarTranscript,
-            duration,
-            s3_object_key: videoS3Key,
-          }),
-        });
+        const finalize = async () => {
+          stopUserCameraRecording();
+
+          const { name, email, scenario, token } = sessionInfo;
+          const userTranscript = sessionMessages
+            .filter((m) => m.sender === MessageSender.CLIENT)
+            .map((m) => m.content)
+            .join('\n');
+          const avatarTranscript = sessionMessages
+            .filter((m) => m.sender === MessageSender.AVATAR)
+            .map((m) => m.content)
+            .join('\n');
+          const duration = 480 - recordingTimerRef.current;
+          const flaskApiUrl = process.env.NEXT_PUBLIC_FLASK_API_URL || '';
+
+          try {
+            let videoS3Key: string | null = null;
+            if (recordedChunks.current.length) {
+              const videoBlob = new Blob(recordedChunks.current, { type: 'video/webm' });
+              if (videoBlob.size) {
+                const form = new FormData();
+                form.append('video', videoBlob, 'user_recording.webm');
+                const uploadRes = await fetch(`${flaskApiUrl}/upload_video`, {
+                  method: 'POST',
+                  headers: { Authorization: `Bearer ${token}` },
+                  body: form,
+                });
+                const uploadJson = await uploadRes.json();
+                if (!uploadRes.ok) throw new Error(uploadJson.message || 'Error desconocido');
+                videoS3Key = uploadJson.s3_object_key;
+              }
+            }
+
+            await fetch(`${flaskApiUrl}/log_full_session`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                name,
+                email,
+                scenario,
+                conversation: userTranscript,
+                avatar_transcript: avatarTranscript,
+                duration,
+                s3_object_key: videoS3Key,
+              }),
+            });
+          } catch (err: any) {
+            console.error('❌ Error finalizando sesión:', err);
+            alert(`⚠️ ${err.message}`);
+            setIsUploading(false);
+          } finally {
+            router.push('/dashboard');
+          }
+        };
+
+        if (mediaRecorderRef.current?.state === 'recording') {
+          mediaRecorderRef.current.onstop = finalize;
+          mediaRecorderRef.current.stop();
+        } else {
+          finalize();
+        }
       } catch (err: any) {
         console.error('❌ Error finalizando sesión:', err);
         alert(`⚠️ ${err.message}`);
         setIsUploading(false);
-      } finally {
         router.push('/dashboard');
       }
-    };
-
-    if (mediaRecorderRef.current?.state === 'recording') {
-      mediaRecorderRef.current.onstop = finalize;
-      mediaRecorderRef.current.stop();
-    } else {
-      finalize();
-    }
-  }, [stopAvatar, stopUserCameraRecording, router, sessionInfo]);
+    },
+    [stopAvatar, stopUserCameraRecording, router, sessionInfo]
+  );
 
   /** ---------- Obtener access token del backend ---------- */
   const fetchAccessToken = useCallback(async (): Promise<string> => {
@@ -287,148 +335,163 @@ function InteractiveSessionContent() {
       silenceGuardTimerRef.current = null;
     }
   }, []);
-avatar.on(StreamingEvents.USER_TALKING_MESSAGE, (e: any) => {
-        console.log('USER_STT:', e.detail);
-        handleUserTalkingMessage({ detail: e.detail });
-        armSilenceGuard();
 
-        if (!firstUserTurnFallbackRef.current) {
-          firstUserTurnFallbackRef.current = true;
-          setTimeout(() => {
-            if (Date.now() - lastAvatarTTSAtRef.current > 900) {
-              trySpeak('Hola, te escucho. Cuéntame, ¿en qué puedo ayudarte hoy?');
-            }
-          }, 1000);
-        }
-      });
-
-      avatar.on(StreamingEvents.AVATAR_TALKING_MESSAGE, (e: any) => {
-        console.log('AVATAR_TTS:', e.detail);
-        lastAvatarTTSAtRef.current = Date.now();
-        handleStreamingTalkingMessage({ detail: e.detail });
-        cancelSilenceGuard();
-      });
   /** ---------- Arrancar sesión HeyGen ---------- */
-  const startHeyGenSession = useCallback(async (withVoice: boolean) => {
-    if (!hasUserMediaPermission) {
-      alert('Por favor, permite el acceso a la cámara y el micrófono.');
-      return;
-    }
-    setIsAttemptingAutoStart(true);
-    try {
-      const heygenToken = await fetchAccessToken();
-      const avatar = initAvatar(heygenToken);
-      avatarRef.current = avatar;
+  const startHeyGenSession = useCallback(
+    async (withVoice: boolean) => {
+      if (!hasUserMediaPermission) {
+        alert('Por favor, permite el acceso a la cámara y el micrófono.');
+        return;
+      }
+      setIsAttemptingAutoStart(true);
+      try {
+        const heygenToken = await fetchAccessToken();
+        const avatar = initAvatar(heygenToken);
+        avatarRef.current = avatar;
 
-      avatar.on(StreamingEvents.USER_TALKING_MESSAGE, (e: any) => {
-        console.log('USER_STT:', e.detail);
-        handleUserTalkingMessage({ detail: e.detail });
-        armSilenceGuard();
+        avatar.on(StreamingEvents.USER_TALKING_MESSAGE, (e: any) => {
+          console.log('USER_STT:', e.detail);
+          handleUserTalkingMessage({ detail: e.detail });
+          armSilenceGuard();
 
-        if (!firstUserTurnFallbackRef.current) {
-          firstUserTurnFallbackRef.current = true;
-          setTimeout(() => {
-            if (Date.now() - lastAvatarTTSAtRef.current > 900) {
-              trySpeak('Hola, te escucho. Cuéntame, ¿en qué puedo ayudarte hoy?');
-            }
-          }, 1000);
-        }
-      });
-
-      avatar.on(StreamingEvents.AVATAR_TALKING_MESSAGE, (e: any) => {
-        console.log('AVATAR_TTS:', e.detail);
-        lastAvatarTTSAtRef.current = Date.now();
-        handleStreamingTalkingMessage({ detail: e.detail });
-        cancelSilenceGuard();
-      });
-
-avatar.on(StreamingEvents.STREAM_DISCONNECTED, () => {
-        console.warn('STREAM_DISCONNECTED');
-        cancelSilenceGuard(); // You will need to add the cancelSilenceGuard function
-        setIsVoiceActive(false);
-        if (!isFinalizingRef.current && !reconnectingRef.current) {
-          reconnectingRef.current = true;
-          setTimeout(() => {
-            reconnectingRef.current = false;
-            startHeyGenSession(withVoice).catch(() => {});
-          }, 1500);
-        }
-      });
-
-      (avatar as any).on?.((StreamingEvents as any).ERROR ?? 'error', (err: any) => {
-        console.error('STREAM_ERROR:', err);
-      });
-
-      avatar.on(StreamingEvents.STREAM_READY, async () => {
-        console.log('STREAM_READY');
-        try {
-          if (avatarVideoRef.current) {
-            avatarVideoRef.current.muted = false;
-            avatarVideoRef.current.volume = 1.0;
-            await avatarVideoRef.current.play().catch(() => {});
+          if (!firstUserTurnFallbackRef.current) {
+            firstUserTurnFallbackRef.current = true;
+            setTimeout(() => {
+              if (Date.now() - lastAvatarTTSAtRef.current > 900) {
+                trySpeak('Hola, te escucho. Cuéntame, ¿en qué puedo ayudarte hoy?');
+              }
+            }, 1000);
           }
-        } catch (e) {
-          console.warn('No se pudo auto-reproducir el video remoto:', e);
-          setShowAutoplayBlockedMessage(true);
-        }
+        });
 
-        setIsAttemptingAutoStart(false);
-        await trySpeak('Hola, ya te escucho. Cuando quieras, empezamos.');
+        avatar.on(StreamingEvents.AVATAR_TALKING_MESSAGE, (e: any) => {
+          console.log('AVATAR_TTS:', e.detail);
+          lastAvatarTTSAtRef.current = Date.now();
+          handleStreamingTalkingMessage({ detail: e.detail });
+          cancelSilenceGuard();
+        });
 
-        if (withVoice && !voiceStartedOnceRef.current) {
+        avatar.on(StreamingEvents.STREAM_DISCONNECTED, () => {
+          console.warn('STREAM_DISCONNECTED');
+          cancelSilenceGuard();
+          setIsVoiceActive(false);
+          if (!isFinalizingRef.current && !reconnectingRef.current) {
+            reconnectingRef.current = true;
+            setTimeout(() => {
+              reconnectingRef.current = false;
+              startHeyGenSession(withVoice).catch(() => {});
+            }, 1500);
+          }
+        });
+
+        (avatar as any).on?.((StreamingEvents as any).ERROR ?? 'error', (err: any) => {
+          console.error('STREAM_ERROR:', err);
+        });
+
+        avatar.on(StreamingEvents.STREAM_READY, async () => {
+          console.log('STREAM_READY');
+
+          // Resolver session_id y arrancar keep-alive
           try {
-            await startVoiceChat();
-            voiceStartedOnceRef.current = true;
-            setIsVoiceActive(true);
-            console.log('startVoiceChat OK');
-          } catch (e) {
-            console.error('startVoiceChat falló:', e);
+            // nombres posibles según build
+            // @ts-ignore
+            heygenSessionIdRef.current =
+              (avatar as any)?.sessionId ||
+              (avatar as any)?.session_id ||
+              (avatar as any)?._sessionId ||
+              (avatar as any)?.session?.id ||
+              (stream as any)?.id ||
+              null;
+          } catch {}
+          if (heygenSessionIdRef.current) {
+            startKeepAlive(heygenSessionIdRef.current);
+            console.log('[keep-alive] session_id =', heygenSessionIdRef.current);
+          } else {
+            console.warn('No pude resolver session_id para keep-alive');
           }
-        }
-      });
 
-      await startAvatar({ ...config, voiceChatTransport: RESOLVED_TRANSPORT as any });
-    } catch (err: any) {
-      console.error('Error iniciando sesión con HeyGen:', err);
-      setShowAutoplayBlockedMessage(true);
-    } finally {
-      setIsAttemptingAutoStart(false);
-    }
-  }, [
-    hasUserMediaPermission,
-    fetchAccessToken,
-    initAvatar,
-    config,
-    startAvatar,
-    startVoiceChat,
-    armSilenceGuard,
-    cancelSilenceGuard,
-    handleUserTalkingMessage,
-    handleStreamingTalkingMessage,
-    trySpeak,
-  ]);
+          try {
+            if (avatarVideoRef.current) {
+              avatarVideoRef.current.muted = false;
+              avatarVideoRef.current.volume = 1.0;
+              await avatarVideoRef.current.play().catch(() => {});
+            }
+          } catch (e) {
+            console.warn('No se pudo auto-reproducir el video remoto:', e);
+            setShowAutoplayBlockedMessage(true);
+          }
+
+          setIsAttemptingAutoStart(false);
+          await trySpeak('Hola, ya te escucho. Cuando quieras, empezamos.');
+
+          if (withVoice && !voiceStartedOnceRef.current) {
+            try {
+              await startVoiceChat();
+              voiceStartedOnceRef.current = true;
+              setIsVoiceActive(true);
+              console.log('startVoiceChat OK');
+            } catch (e) {
+              console.error('startVoiceChat falló:', e);
+            }
+          }
+        });
+
+        await startAvatar({
+          ...config,
+          voiceChatTransport: RESOLVED_TRANSPORT as any,
+          // Algunas versiones del SDK aceptan este campo;
+          // si no, simplemente lo ignoran.
+          // @ts-ignore
+          activityIdleTimeout: 600, // 10 min para cubrir tus 8 min
+        });
+      } catch (err: any) {
+        console.error('Error iniciando sesión con HeyGen:', err);
+        setShowAutoplayBlockedMessage(true);
+      } finally {
+        setIsAttemptingAutoStart(false);
+      }
+    },
+    [
+      hasUserMediaPermission,
+      fetchAccessToken,
+      initAvatar,
+      config,
+      startAvatar,
+      startVoiceChat,
+      armSilenceGuard,
+      cancelSilenceGuard,
+      handleUserTalkingMessage,
+      handleStreamingTalkingMessage,
+      trySpeak,
+      stream,
+      startKeepAlive,
+    ]
+  );
 
   /** ---------- Botón “Voice Chat” ---------- */
-  const handleVoiceChatClick = useCallback(async () => {
-    if (!hasUserMediaPermission) {
-      alert('Por favor, permite el acceso a la cámara y el micrófono.');
-      return;
-    }
-    if (sessionState === StreamingAvatarSessionState.CONNECTED) {
-      try {
-        if (!voiceStartedOnceRef.current) {
-          await startVoiceChat();
-          voiceStartedOnceRef.current = true;
-        }
-        setIsVoiceActive(true);
-        console.log('startVoiceChat OK (sesión ya conectada)');
-      } catch (e) {
-        console.error('startVoiceChat falló:', e);
+  const handleVoiceChatClick = useCallback(
+    async () => {
+      if (!hasUserMediaPermission) {
+        alert('Por favor, permite el acceso a la cámara y el micrófono.');
+        return;
       }
-    } else {
-      startHeyGenSession(true);
-    }
-  }, [hasUserMediaPermission, sessionState, startVoiceChat, startHeyGenSession]);
+      if (sessionState === StreamingAvatarSessionState.CONNECTED) {
+        try {
+          if (!voiceStartedOnceRef.current) {
+            await startVoiceChat();
+            voiceStartedOnceRef.current = true;
+          }
+          setIsVoiceActive(true);
+          console.log('startVoiceChat OK (sesión ya conectada)');
+        } catch (e) {
+          console.error('startVoiceChat falló:', e);
+        }
+      } else {
+        startHeyGenSession(true);
+      }
+    },
+    [hasUserMediaPermission, sessionState, startVoiceChat, startHeyGenSession]
+  );
 
   /** ---------- Permisos cámara/mic ---------- */
   useEffect(() => {
@@ -480,7 +543,9 @@ avatar.on(StreamingEvents.STREAM_DISCONNECTED, () => {
     if (sessionState === StreamingAvatarSessionState.CONNECTED) {
       id = setInterval(() => {
         recordingTimerRef.current -= 1;
-        const m = Math.floor(recordingTimerRef.current / 60).toString().padStart(2, '0');
+        const m = Math.floor(recordingTimerRef.current / 60)
+          .toString()
+          .padStart(2, '0');
         const s = (recordingTimerRef.current % 60).toString().padStart(2, '0');
         setTimerDisplay(`${m}:${s}`);
         if (recordingTimerRef.current <= 0) {
@@ -489,7 +554,9 @@ avatar.on(StreamingEvents.STREAM_DISCONNECTED, () => {
         }
       }, 1000);
     }
-    return () => { if (id) clearInterval(id); };
+    return () => {
+      if (id) clearInterval(id);
+    };
   }, [sessionState, stopAndFinalizeSession]);
 
   /** ---------- Cleanup ---------- */
@@ -523,9 +590,10 @@ avatar.on(StreamingEvents.STREAM_DISCONNECTED, () => {
         {`🧠 Leo – ${sessionInfo?.scenario || ''}`}
       </h1>
 
-      {sessionState === StreamingAvatarSessionState.INACTIVE && !hasUserMediaPermission && !showAutoplayBlockedMessage && (
-        <p className="text-zinc-300 mb-6">Solicitando permisos...</p>
-      )}
+      {sessionState === StreamingAvatarSessionState.INACTIVE &&
+        !hasUserMediaPermission &&
+        !showAutoplayBlockedMessage && <p className="text-zinc-300 mb-6">Solicitando permisos...</p>}
+
       {showAutoplayBlockedMessage && (
         <div className="text-red-400 mb-6 text-center">
           Permisos de cámara/micrófono denegados o no disponibles.
@@ -533,7 +601,7 @@ avatar.on(StreamingEvents.STREAM_DISCONNECTED, () => {
       )}
 
       {/* Video area */}
-      <div className="relative w-full max-w-4xl flex flex-col md:flex-row items-center justify-center gap-5 p-4">
+      <div className="relative w-full max-w-4xl flex flex-col md:flex-row items-center justifycenter gap-5 p-4">
         {/* Avatar video */}
         <div className="relative w-full md:w-1/2 aspect-video min-h-[300px] flex items-center justify-center bg-zinc-800 rounded-lg shadow-lg overflow-hidden">
           {sessionState !== StreamingAvatarSessionState.INACTIVE ? (
@@ -582,16 +650,10 @@ avatar.on(StreamingEvents.STREAM_DISCONNECTED, () => {
       <div className="flex flex-col gap-3 items-center justify-center p-4 border-t border-zinc-700 w-full mt-6">
         {sessionState === StreamingAvatarSessionState.INACTIVE && !showAutoplayBlockedMessage && (
           <div className="flex flex-row gap-4">
-            <Button
-              onClick={handleVoiceChatClick}
-              disabled={isAttemptingAutoStart || !hasUserMediaPermission}
-            >
+            <Button onClick={handleVoiceChatClick} disabled={isAttemptingAutoStart || !hasUserMediaPermission}>
               Iniciar Chat de Voz
             </Button>
-            <Button
-              onClick={() => startHeyGenSession(false)}
-              disabled={isAttemptingAutoStart || !hasUserMediaPermission}
-            >
+            <Button onClick={() => startHeyGenSession(false)} disabled={isAttemptingAutoStart || !hasUserMediaPermission}>
               Iniciar Chat de Texto
             </Button>
           </div>
@@ -604,7 +666,10 @@ avatar.on(StreamingEvents.STREAM_DISCONNECTED, () => {
         {sessionState === StreamingAvatarSessionState.CONNECTED && (
           <>
             <AvatarControls />
-            <Button onClick={() => stopAndFinalizeSession(messagesRef.current)} className="bg-red-600 hover:bg-red-700">
+            <Button
+              onClick={() => stopAndFinalizeSession(messagesRef.current)}
+              className="bg-red-600 hover:bg-red-700"
+            >
               Finalizar Sesión
             </Button>
           </>
@@ -632,31 +697,7 @@ avatar.on(StreamingEvents.STREAM_DISCONNECTED, () => {
     </div>
   );
 }
-const trySpeak = useCallback(async (text: string) => {
-    const a: any = avatarRef.current;
-    if (!a) return;
-    try {
-      if (typeof a.speakText === 'function')      await a.speakText(text);
-      else if (typeof a.say === 'function')       await a.say(text);
-      else if (typeof a.send === 'function')      await a.send(text);
-    } catch (e) { console.warn('trySpeak fallback warning:', e); }
-  }, []);
 
-  const armSilenceGuard = useCallback(() => {
-    if (silenceGuardTimerRef.current) clearTimeout(silenceGuardTimerRef.current);
-    silenceGuardTimerRef.current = setTimeout(async () => {
-      if (Date.now() - lastAvatarTTSAtRef.current > 3000) {
-        await trySpeak('Perdona, tuve un pequeño retraso. Ya te escucho, ¿puedes repetir o continuar?');
-      }
-    }, 5000);
-  }, [trySpeak]);
-
-  const cancelSilenceGuard = useCallback(() => {
-    if (silenceGuardTimerRef.current) {
-      clearTimeout(silenceGuardTimerRef.current);
-      silenceGuardTimerRef.current = null;
-    }
-  }, []);
 export default function InteractiveSessionWrapper() {
   return (
     <StreamingAvatarProvider>
