@@ -208,8 +208,8 @@ function InteractiveSessionContent() {
     try {
       const recorder = new MediaRecorder(localUserStreamRef.current, {
         mimeType: 'video/webm; codecs=vp8',
-        videoBitsPerSecond: 2_500_000,
-        audioBitsPerSecond: 128_000,
+        videoBitsPerSecond: 800_000,
+        audioBitsPerSecond: 64_000,
       });
       recordedChunks.current = [];
       recorder.ondataavailable = (e) => e.data.size && recordedChunks.current.push(e.data);
@@ -369,19 +369,6 @@ function InteractiveSessionContent() {
           lastAvatarTTSAtRef.current = Date.now();
           handleStreamingTalkingMessage({ detail: e.detail });
           cancelSilenceGuard();
-        });
-
-        avatar.on(StreamingEvents.STREAM_DISCONNECTED, () => {
-          console.warn('STREAM_DISCONNECTED');
-          cancelSilenceGuard();
-          setIsVoiceActive(false);
-          if (!isFinalizingRef.current && !reconnectingRef.current) {
-            reconnectingRef.current = true;
-            setTimeout(() => {
-              reconnectingRef.current = false;
-              startHeyGenSession(withVoice).catch(() => {});
-            }, 1500);
-          }
         });
 
         (avatar as any).on?.((StreamingEvents as any).ERROR ?? 'error', (err: any) => {
