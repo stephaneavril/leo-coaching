@@ -29,6 +29,7 @@ import { LoadingIcon } from '@/components/Icons';
 import { MessageHistory } from '@/components/AvatarSession/MessageHistory';
 import { LoaderCircle } from 'lucide-react';
 
+
 /** Preferencia por WebRTC si existe; si no, WS */
 const RESOLVED_TRANSPORT: any = (() => {
   const vct: any = VoiceChatTransport as any;
@@ -91,12 +92,14 @@ function InteractiveSessionContent() {
   const [isVoiceActive, setIsVoiceActive] = useState(false);
 
   // Refs
+  
   const avatarRef = useRef<any>(null);
   const voiceStartedOnceRef = useRef(false);
   const reconnectingRef = useRef(false);
   const silenceGuardTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const firstUserTurnFallbackRef = useRef(false);
   const lastAvatarTTSAtRef = useRef<number>(0);
+  const keepAliveIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // 8 minutos (puedes subirlo sin problema)
   const recordingTimerRef = useRef<number>(480);
@@ -113,6 +116,28 @@ function InteractiveSessionContent() {
   useEffect(() => { messagesRef.current = messages; }, [messages]);
 
   /** ---------- Helper para hablar ---------- */
+
+  const startKeepAlive = useCallback((sessionId: string) => {
+  // limpia si ya había un intervalo
+  if (keepAliveIntervalRef.current) {
+    clearInterval(keepAliveIntervalRef.current);
+    keepAliveIntervalRef.current = null;
+  }
+
+  keepAliveIntervalRef.current = setInterval(async () => {
+    try {
+      await fetch("/api/keep-alive", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sessionId }),
+      });
+      console.log("[keep-alive] enviado");
+    } catch (e) {
+      console.error("[keep-alive] fallo:", e);
+    }
+  }, 45_000); // cada 45s
+}, []);
+
   const trySpeak = useCallback(async (text: string) => {
     const a: any = avatarRef.current;
     if (!a) return;
@@ -262,7 +287,27 @@ function InteractiveSessionContent() {
       silenceGuardTimerRef.current = null;
     }
   }, []);
+avatar.on(StreamingEvents.USER_TALKING_MESSAGE, (e: any) => {
+        console.log('USER_STT:', e.detail);
+        handleUserTalkingMessage({ detail: e.detail });
+        armSilenceGuard();
 
+        if (!firstUserTurnFallbackRef.current) {
+          firstUserTurnFallbackRef.current = true;
+          setTimeout(() => {
+            if (Date.now() - lastAvatarTTSAtRef.current > 900) {
+              trySpeak('Hola, te escucho. Cuéntame, ¿en qué puedo ayudarte hoy?');
+            }
+          }, 1000);
+        }
+      });
+
+      avatar.on(StreamingEvents.AVATAR_TALKING_MESSAGE, (e: any) => {
+        console.log('AVATAR_TTS:', e.detail);
+        lastAvatarTTSAtRef.current = Date.now();
+        handleStreamingTalkingMessage({ detail: e.detail });
+        cancelSilenceGuard();
+      });
   /** ---------- Arrancar sesión HeyGen ---------- */
   const startHeyGenSession = useCallback(async (withVoice: boolean) => {
     if (!hasUserMediaPermission) {
@@ -297,9 +342,9 @@ function InteractiveSessionContent() {
         cancelSilenceGuard();
       });
 
-      avatar.on(StreamingEvents.STREAM_DISCONNECTED, () => {
+avatar.on(StreamingEvents.STREAM_DISCONNECTED, () => {
         console.warn('STREAM_DISCONNECTED');
-        cancelSilenceGuard();
+        cancelSilenceGuard(); // You will need to add the cancelSilenceGuard function
         setIsVoiceActive(false);
         if (!isFinalizingRef.current && !reconnectingRef.current) {
           reconnectingRef.current = true;
@@ -587,7 +632,31 @@ function InteractiveSessionContent() {
     </div>
   );
 }
+const trySpeak = useCallback(async (text: string) => {
+    const a: any = avatarRef.current;
+    if (!a) return;
+    try {
+      if (typeof a.speakText === 'function')      await a.speakText(text);
+      else if (typeof a.say === 'function')       await a.say(text);
+      else if (typeof a.send === 'function')      await a.send(text);
+    } catch (e) { console.warn('trySpeak fallback warning:', e); }
+  }, []);
 
+  const armSilenceGuard = useCallback(() => {
+    if (silenceGuardTimerRef.current) clearTimeout(silenceGuardTimerRef.current);
+    silenceGuardTimerRef.current = setTimeout(async () => {
+      if (Date.now() - lastAvatarTTSAtRef.current > 3000) {
+        await trySpeak('Perdona, tuve un pequeño retraso. Ya te escucho, ¿puedes repetir o continuar?');
+      }
+    }, 5000);
+  }, [trySpeak]);
+
+  const cancelSilenceGuard = useCallback(() => {
+    if (silenceGuardTimerRef.current) {
+      clearTimeout(silenceGuardTimerRef.current);
+      silenceGuardTimerRef.current = null;
+    }
+  }, []);
 export default function InteractiveSessionWrapper() {
   return (
     <StreamingAvatarProvider>
