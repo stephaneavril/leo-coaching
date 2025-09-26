@@ -102,6 +102,68 @@ function InteractiveSessionContent() {
   const avatarVideoRef = useRef<HTMLVideoElement>(null);
   const isFinalizingRef = useRef(false);
 
+  // ——— Debug/recuperación de video/TTS remoto ———
+  const noFrameSinceRef = useRef<number>(Date.now());
+  const lastTotalFramesRef = useRef<number>(0);
+  const watchdogIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  function getTotalFrames(v: HTMLVideoElement) {
+    try {
+      // @ts-ignore Chrome/Edge
+      if (typeof v.getVideoPlaybackQuality === 'function') {
+        // @ts-ignore
+        const q = v.getVideoPlaybackQuality();
+        return q.totalVideoFrames || 0;
+      }
+      // @ts-ignore Safari
+      if (typeof (v as any).webkitDecodedFrameCount === 'number') {
+        // @ts-ignore
+        return (v as any).webkitDecodedFrameCount || 0;
+      }
+    } catch {}
+    return 0;
+  }
+
+  async function recoverRemoteVideo(reason: string) {
+    const v = avatarVideoRef.current;
+    const ms = (v?.srcObject as MediaStream) || null;
+    console.warn('[RECOVER] intento →', reason, { hasVideo: !!v, hasStream: !!ms });
+    if (!v || !ms) return;
+
+    try {
+      v.muted = false;
+      v.volume = 1.0;
+      await v.play();
+      console.log('[RECOVER] play() OK');
+    } catch (e) {
+      console.warn('[RECOVER] play() falló', e);
+    }
+
+    try {
+      v.srcObject = null;
+      await new Promise((r) => setTimeout(r, 50));
+      v.srcObject = ms;
+      await v.play().catch(() => {});
+      console.log('[RECOVER] rebind srcObject OK');
+    } catch (e) {
+      console.warn('[RECOVER] rebind falló', e);
+    }
+
+    try {
+      const vids = ms.getVideoTracks().filter((t) => t.readyState === 'live');
+      const auds = ms.getAudioTracks().filter((t) => t.readyState === 'live');
+      if (vids.length || auds.length) {
+        const fresh = new MediaStream([...vids, ...auds]);
+        v.srcObject = fresh;
+        await v.play().catch(() => {});
+        console.log('[RECOVER] new MediaStream wrapper OK');
+      }
+    } catch (e) {
+      console.warn('[RECOVER] new wrapper falló', e);
+    }
+  }
+  // ——————————————————————————————————————————————
+
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
@@ -160,6 +222,7 @@ function InteractiveSessionContent() {
           body: JSON.stringify({ session_id: heygenSessionIdRef.current }),
           cache: 'no-store',
         }).catch(() => {});
+        avatarVideoRef.current?.play().catch(() => {});
       }
     };
     document.addEventListener('visibilitychange', onVis);
@@ -208,7 +271,7 @@ function InteractiveSessionContent() {
     try {
       const recorder = new MediaRecorder(localUserStreamRef.current, {
         mimeType: 'video/webm; codecs=vp8',
-        videoBitsPerSecond: 800_000,
+        videoBitsPerSecond: 800_000, // ↓ tamaño final
         audioBitsPerSecond: 64_000,
       });
       recordedChunks.current = [];
@@ -380,8 +443,7 @@ function InteractiveSessionContent() {
 
           // Resolver session_id y arrancar keep-alive
           try {
-            // nombres posibles según build
-            // @ts-ignore
+            // @ts-ignore (distintos builds)
             heygenSessionIdRef.current =
               (avatar as any)?.sessionId ||
               (avatar as any)?.session_id ||
@@ -426,8 +488,7 @@ function InteractiveSessionContent() {
         await startAvatar({
           ...config,
           voiceChatTransport: RESOLVED_TRANSPORT as any,
-          // Algunas versiones del SDK aceptan este campo;
-          // si no, simplemente lo ignoran.
+          // Algunas versiones del SDK aceptan este campo; si no, lo ignoran.
           // @ts-ignore
           activityIdleTimeout: 600, // 10 min para cubrir tus 8 min
         });
@@ -524,6 +585,57 @@ function InteractiveSessionContent() {
     }
   }, [stream]);
 
+  /** ---------- Eventos del <video> + watchdog de frames ---------- */
+  useEffect(() => {
+    const v = avatarVideoRef.current;
+    if (!v) return;
+
+    const log = (...a: any[]) => console.log('[AVATAR VIDEO]', ...a);
+    const handlers: Record<string, any> = {
+      playing: () => log('playing'),
+      pause: () => log('pause'),
+      waiting: () => { log('waiting'); recoverRemoteVideo('waiting'); },
+      stalled: () => { log('stalled'); recoverRemoteVideo('stalled'); },
+      suspend: () => log('suspend'),
+      canplay: () => log('canplay'),
+      canplaythrough: () => log('canplaythrough'),
+      ended: () => log('ended'),
+      error: () => log('error', (v as any).error),
+    };
+    Object.entries(handlers).forEach(([ev, fn]) => v.addEventListener(ev, fn));
+
+    // Watchdog de frames
+    if (watchdogIntervalRef.current) {
+      clearInterval(watchdogIntervalRef.current);
+      watchdogIntervalRef.current = null;
+    }
+    lastTotalFramesRef.current = getTotalFrames(v);
+    noFrameSinceRef.current = Date.now();
+
+    watchdogIntervalRef.current = setInterval(() => {
+      const tf = getTotalFrames(v);
+      if (tf > lastTotalFramesRef.current) {
+        lastTotalFramesRef.current = tf;
+        noFrameSinceRef.current = Date.now();
+        return;
+      }
+      const gap = Date.now() - noFrameSinceRef.current;
+      if (gap > 3500) {
+        console.warn('[WATCHDOG] sin frames por', gap, 'ms → recover');
+        recoverRemoteVideo('watchdog-no-frames');
+        noFrameSinceRef.current = Date.now();
+      }
+    }, 1200);
+
+    return () => {
+      Object.entries(handlers).forEach(([ev, fn]) => v.removeEventListener(ev, fn));
+      if (watchdogIntervalRef.current) {
+        clearInterval(watchdogIntervalRef.current);
+        watchdogIntervalRef.current = null;
+      }
+    };
+  }, [stream]);
+
   /** ---------- Temporizador UI + autostop ---------- */
   useEffect(() => {
     let id: NodeJS.Timeout | undefined;
@@ -588,7 +700,7 @@ function InteractiveSessionContent() {
       )}
 
       {/* Video area */}
-      <div className="relative w-full max-w-4xl flex flex-col md:flex-row items-center justifycenter gap-5 p-4">
+      <div className="relative w-full max-w-4xl flex flex-col md:flex-row items-center justify-center gap-5 p-4">
         {/* Avatar video */}
         <div className="relative w-full md:w-1/2 aspect-video min-h-[300px] flex items-center justify-center bg-zinc-800 rounded-lg shadow-lg overflow-hidden">
           {sessionState !== StreamingAvatarSessionState.INACTIVE ? (
