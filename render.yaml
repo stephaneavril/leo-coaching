@@ -33,7 +33,7 @@ services:
         value: us-east-1
       - key: REDIS_URL
         fromService:
-          name: leo-trainer-redis
+          name: leo-coaching-redis
           type: redis
           property: connectionString
 
@@ -76,6 +76,6 @@ services:
         value: us-east-1
       - key: REDIS_URL
         fromService:
-          name: leo-trainer-redis
+          name: leo-coaching-redis
           type: redis
           property: connectionString
