@@ -82,13 +82,20 @@ function InteractiveSessionContent() {
 
   // Refs
   const avatarRef = useRef<any>(null);
-  const voiceStartedOnceRef = useRef(false);
-  const reconnectingRef = useRef(false);
   const silenceGuardTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const firstUserTurnFallbackRef = useRef(false);
   const lastAvatarTTSAtRef = useRef<number>(0);
   const keepAliveIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const heygenSessionIdRef = useRef<string | null>(null); // session_id para keep-alive
+
+  // Vigilar STT y nivel de mic
+  const lastUserSTTAtRef = useRef<number>(Date.now());
+  const [micLevel, setMicLevel] = useState(0);
+  const micRafRef = useRef<number | null>(null);
+  const micAudioCtxRef = useRef<AudioContext | null>(null);
+  const micSrcRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const micAnalyserRef = useRef<AnalyserNode | null>(null);
+  const micDataRef = useRef<Uint8Array | null>(null);
 
   // 8 minutos
   const recordingTimerRef = useRef<number>(480);
@@ -256,6 +263,53 @@ function InteractiveSessionContent() {
     }
   }, [searchParams]);
 
+  /** ---------- Medidor de mic: start/stop explícitos ---------- */
+  const stopMicMeter = useCallback(() => {
+    if (micRafRef.current) cancelAnimationFrame(micRafRef.current);
+    micRafRef.current = null;
+    try { micSrcRef.current?.disconnect(); } catch {}
+    try { micAnalyserRef.current?.disconnect(); } catch {}
+    micSrcRef.current = null;
+    micAnalyserRef.current = null;
+    // No cerramos micAudioCtxRef para no romper autoplay; el GC lo recoge
+  }, []);
+
+  const startMicMeter = useCallback(async () => {
+    stopMicMeter();
+    const ms = localUserStreamRef.current;
+    if (!ms) return;
+    const AC: any = (window as any).AudioContext || (window as any).webkitAudioContext;
+    if (!AC) return;
+
+    const ctx: AudioContext = new AC();
+    await ctx.resume();
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 2048;
+    const src = ctx.createMediaStreamSource(ms);
+    src.connect(analyser);
+
+    const data = new Uint8Array(analyser.frequencyBinCount);
+    micAudioCtxRef.current = ctx;
+    micAnalyserRef.current = analyser;
+    micSrcRef.current = src;
+    micDataRef.current = data;
+
+    const loop = () => {
+      if (!micAnalyserRef.current || !micDataRef.current) return;
+      micAnalyserRef.current.getByteTimeDomainData(micDataRef.current);
+      let sum = 0;
+      for (let i = 0; i < micDataRef.current.length; i++) {
+        const v = (micDataRef.current[i] - 128) / 128;
+        sum += v * v;
+      }
+      setMicLevel(Math.sqrt(sum / micDataRef.current.length)); // 0..~0.4
+      micRafRef.current = requestAnimationFrame(loop);
+    };
+    loop();
+  }, [stopMicMeter]);
+
+  useUnmount(stopMicMeter);
+
   /** ---------- Cámara/Grabación usuario ---------- */
   const stopUserCameraRecording = useCallback(() => {
     if (localUserStreamRef.current) {
@@ -271,7 +325,7 @@ function InteractiveSessionContent() {
     try {
       const recorder = new MediaRecorder(localUserStreamRef.current, {
         mimeType: 'video/webm; codecs=vp8',
-        videoBitsPerSecond: 800_000, // ↓ tamaño final
+        videoBitsPerSecond: 800_000,
         audioBitsPerSecond: 64_000,
       });
       recordedChunks.current = [];
@@ -399,6 +453,35 @@ function InteractiveSessionContent() {
     }
   }, []);
 
+  /** ---------- Guards del track de audio ---------- */
+  const bindAudioTrackGuards = useCallback((ms: MediaStream) => {
+    ms.getAudioTracks().forEach((t) => {
+      t.onended = async () => {
+        console.warn('[AUDIO] track ended → reacquire mic');
+        try {
+          const s = await navigator.mediaDevices.getUserMedia({
+            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+          });
+          const videoTracks =
+            localUserStreamRef.current?.getVideoTracks?.().filter((v) => v.readyState === 'live') || [];
+          localUserStreamRef.current = new MediaStream([...s.getAudioTracks(), ...videoTracks]);
+          if (userCameraRef.current) userCameraRef.current.srcObject = localUserStreamRef.current;
+
+          bindAudioTrackGuards(localUserStreamRef.current);
+          startMicMeter();
+
+          // reintenta voz si la sesión sigue conectada
+          if (sessionState === StreamingAvatarSessionState.CONNECTED) {
+            await startVoiceChat().catch(() => {});
+            setIsVoiceActive(true);
+          }
+        } catch (e) {
+          console.error('Reacquire mic failed:', e);
+        }
+      };
+    });
+  }, [sessionState, startVoiceChat, startMicMeter]);
+
   /** ---------- Arrancar sesión HeyGen ---------- */
   const startHeyGenSession = useCallback(
     async (withVoice: boolean) => {
@@ -414,6 +497,7 @@ function InteractiveSessionContent() {
 
         avatar.on(StreamingEvents.USER_TALKING_MESSAGE, (e: any) => {
           console.log('USER_STT:', e.detail);
+          lastUserSTTAtRef.current = Date.now();
           handleUserTalkingMessage({ detail: e.detail });
           armSilenceGuard();
 
@@ -474,15 +558,14 @@ function InteractiveSessionContent() {
           await trySpeak('Hola, ya te escucho. Cuando quieras, empezamos.');
 
           if (withVoice) {
-  try {
-    await startVoiceChat();
-    setIsVoiceActive(true);
-    console.log('startVoiceChat OK');
-  } catch (e) {
-    console.error('startVoiceChat falló:', e);
-  }
-}
-
+            try {
+              await startVoiceChat();
+              setIsVoiceActive(true);
+              console.log('startVoiceChat OK');
+            } catch (e) {
+              console.error('startVoiceChat falló:', e);
+            }
+          }
         });
 
         await startAvatar({
@@ -516,55 +599,62 @@ function InteractiveSessionContent() {
     ]
   );
 
-  /** ---------- Botón “Voice Chat” ---------- */
+  /** ---------- Botón “Voice Chat” (con sesión o arrancando) ---------- */
   const handleVoiceChatClick = useCallback(async () => {
-  if (!hasUserMediaPermission) {
-    alert('Por favor, permite el acceso a la cámara y el micrófono.');
-    return;
-  }
-
-  // 1) ¿Tenemos un stream con audio vivo?
-  const hasLiveAudio =
-    !!localUserStreamRef.current &&
-    localUserStreamRef.current.getAudioTracks().some(
-      (t) => t.enabled && t.readyState === 'live'
-    );
-
-  // 2) Si no hay audio, re-solicitar micrófono (con mejoras de captura)
-  if (!hasLiveAudio) {
-    try {
-      const s = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
-      // Mantén tu cámara si ya existe; aquí sólo aseguramos audio
-      const existingVideoTracks =
-        localUserStreamRef.current?.getVideoTracks?.().filter((t) => t.readyState === 'live') || [];
-      localUserStreamRef.current = new MediaStream([...s.getAudioTracks(), ...existingVideoTracks]);
-      if (userCameraRef.current) {
-        userCameraRef.current.srcObject = localUserStreamRef.current;
-      }
-    } catch (e) {
-      console.error('No fue posible recuperar el micrófono:', e);
-      alert('No pude activar el micrófono. Revisa permisos en el candado del navegador.');
+    if (!hasUserMediaPermission) {
+      alert('Por favor, permite el acceso a la cámara y el micrófono.');
       return;
     }
-  }
 
-  // 3) Reintenta SIEMPRE levantar el canal de voz (sin depender de voiceStartedOnceRef)
-  try {
-    await startVoiceChat();
-    setIsVoiceActive(true);
-    console.log('Voice chat activo');
-  } catch (e) {
-    console.error('startVoiceChat falló:', e);
-    alert('No pude activar la voz. Intenta de nuevo.');
-  }
-}, [hasUserMediaPermission, startVoiceChat]);
+    // 1) ¿Tenemos un stream con audio vivo?
+    const hasLiveAudio =
+      !!localUserStreamRef.current &&
+      localUserStreamRef.current.getAudioTracks().some(
+        (t) => t.enabled && t.readyState === 'live'
+      );
 
+    // 2) Si no hay audio, re-solicitar micrófono (con mejoras de captura)
+    if (!hasLiveAudio) {
+      try {
+        const s = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        });
+        const existingVideoTracks =
+          localUserStreamRef.current?.getVideoTracks?.().filter((t) => t.readyState === 'live') || [];
+        localUserStreamRef.current = new MediaStream([...s.getAudioTracks(), ...existingVideoTracks]);
+        if (userCameraRef.current) userCameraRef.current.srcObject = localUserStreamRef.current;
+
+        bindAudioTrackGuards(localUserStreamRef.current);
+        startMicMeter();
+      } catch (e) {
+        console.error('No fue posible recuperar el micrófono:', e);
+        alert('No pude activar el micrófono. Revisa permisos en el candado del navegador.');
+        return;
+      }
+    }
+
+    // 3) Si YA hay sesión, activa voz; si NO, arranca la sesión con voz
+    try {
+      if (sessionState === StreamingAvatarSessionState.CONNECTED) {
+        await startVoiceChat();
+        setIsVoiceActive(true);
+        console.log('Voice chat activo (sesión ya conectada)');
+      } else {
+        await startHeyGenSession(true); // STREAM_READY llamará startVoiceChat
+        console.log('Arrancando sesión + voz…');
+      }
+    } catch (e) {
+      console.error('No fue posible iniciar el chat de voz:', e);
+      alert('No pude activar la voz. Intenta de nuevo.');
+    }
+  }, [
+    hasUserMediaPermission,
+    sessionState,
+    startVoiceChat,
+    startHeyGenSession,
+    startMicMeter,
+    bindAudioTrackGuards,
+  ]);
 
   /** ---------- Permisos cámara/mic ---------- */
   useEffect(() => {
@@ -577,13 +667,16 @@ function InteractiveSessionContent() {
         localUserStreamRef.current = stream;
         if (userCameraRef.current) userCameraRef.current.srcObject = stream;
         setHasUserMediaPermission(true);
+
+        bindAudioTrackGuards(stream);
+        startMicMeter();
       } catch (err) {
         console.error('❌ Error al obtener permisos:', err);
         setShowAutoplayBlockedMessage(true);
       }
     };
     if (isReady) getUserMediaStream();
-  }, [isReady]);
+  }, [isReady, bindAudioTrackGuards, startMicMeter]);
 
   /** ---------- Grabar cámara usuario al conectar ---------- */
   useEffect(() => {
@@ -661,6 +754,60 @@ function InteractiveSessionContent() {
     };
   }, [stream]);
 
+  /** ---------- Watchdog del uplink de voz ---------- */
+  useEffect(() => {
+    const id = setInterval(async () => {
+      const now = Date.now();
+
+      // ¿audio tracks vivos?
+      const hasLiveAudio =
+        !!localUserStreamRef.current &&
+        localUserStreamRef.current.getAudioTracks().some(
+          (t) => t.enabled && t.readyState === 'live'
+        );
+
+      // Si no hay live audio, re-provisiona
+      if (!hasLiveAudio) {
+        console.warn('[WD] no live audio → re-getUserMedia');
+        try {
+          const s = await navigator.mediaDevices.getUserMedia({
+            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+          });
+          const videoTracks =
+            localUserStreamRef.current?.getVideoTracks?.().filter((v) => v.readyState === 'live') || [];
+          localUserStreamRef.current = new MediaStream([...s.getAudioTracks(), ...videoTracks]);
+          if (userCameraRef.current) userCameraRef.current.srcObject = localUserStreamRef.current;
+
+          bindAudioTrackGuards(localUserStreamRef.current);
+          startMicMeter();
+
+          if (sessionState === StreamingAvatarSessionState.CONNECTED) {
+            await startVoiceChat().catch(() => {});
+            setIsVoiceActive(true);
+          }
+          return;
+        } catch (e) {
+          console.error('[WD] re-getUserMedia failed:', e);
+        }
+      }
+
+      // Si hay señal de mic pero no llega STT hace >8s → reinicia canal de voz
+      const sttGap = now - lastUserSTTAtRef.current;
+      if (isVoiceActive && micLevel > 0.03 && sttGap > 8000) {
+        console.warn('[WD] micLevel>0 pero sin STT → restart startVoiceChat');
+        try {
+          await startVoiceChat();
+          setIsVoiceActive(true);
+          lastUserSTTAtRef.current = Date.now();
+        } catch (e) {
+          console.error('[WD] restart startVoiceChat error:', e);
+        }
+      }
+    }, 5000);
+
+    return () => clearInterval(id);
+  }, [isVoiceActive, micLevel, sessionState, startVoiceChat, bindAudioTrackGuards, startMicMeter]);
+
   /** ---------- Temporizador UI + autostop ---------- */
   useEffect(() => {
     let id: NodeJS.Timeout | undefined;
@@ -682,41 +829,52 @@ function InteractiveSessionContent() {
       if (id) clearInterval(id);
     };
   }, [sessionState, stopAndFinalizeSession]);
-useEffect(() => {
-  const onDeviceChange = async () => {
-    try {
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const mics = devices.filter((d) => d.kind === 'audioinput');
-      if (mics.length === 0) {
-        setIsVoiceActive(false);
-        alert('No hay micrófonos disponibles.');
-        return;
-      }
-      const hasLive =
-        !!localUserStreamRef.current &&
-        localUserStreamRef.current.getAudioTracks().some((t) => t.readyState === 'live');
-      if (!hasLive) {
-        const s = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const existingVideoTracks =
-          localUserStreamRef.current?.getVideoTracks?.().filter((t) => t.readyState === 'live') || [];
-        localUserStreamRef.current = new MediaStream([...s.getAudioTracks(), ...existingVideoTracks]);
-        if (userCameraRef.current) {
-          userCameraRef.current.srcObject = localUserStreamRef.current;
-        }
-        console.log('Mic reaprovisionado tras devicechange');
-      }
-    } catch (e) {
-      console.warn('devicechange error:', e);
-    }
-  };
 
-  navigator.mediaDevices?.addEventListener?.('devicechange', onDeviceChange);
-  return () => navigator.mediaDevices?.removeEventListener?.('devicechange', onDeviceChange);
-}, []);
+  /** ---------- devicechange ---------- */
+  useEffect(() => {
+    const onDeviceChange = async () => {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const mics = devices.filter((d) => d.kind === 'audioinput');
+        if (mics.length === 0) {
+          setIsVoiceActive(false);
+          alert('No hay micrófonos disponibles.');
+          return;
+        }
+        const hasLive =
+          !!localUserStreamRef.current &&
+          localUserStreamRef.current.getAudioTracks().some((t) => t.readyState === 'live');
+        if (!hasLive) {
+          const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+          const existingVideoTracks =
+            localUserStreamRef.current?.getVideoTracks?.().filter((t) => t.readyState === 'live') || [];
+          localUserStreamRef.current = new MediaStream([...s.getAudioTracks(), ...existingVideoTracks]);
+          if (userCameraRef.current) {
+            userCameraRef.current.srcObject = localUserStreamRef.current;
+          }
+          console.log('Mic reaprovisionado tras devicechange');
+
+          bindAudioTrackGuards(localUserStreamRef.current);
+          startMicMeter();
+
+          if (sessionState === StreamingAvatarSessionState.CONNECTED) {
+            await startVoiceChat().catch(() => {});
+            setIsVoiceActive(true);
+          }
+        }
+      } catch (e) {
+        console.warn('devicechange error:', e);
+      }
+    };
+
+    navigator.mediaDevices?.addEventListener?.('devicechange', onDeviceChange);
+    return () => navigator.mediaDevices?.removeEventListener?.('devicechange', onDeviceChange);
+  }, [bindAudioTrackGuards, startMicMeter, sessionState, startVoiceChat]);
 
   /** ---------- Cleanup ---------- */
   useUnmount(() => {
     if (!isFinalizingRef.current) stopAndFinalizeSession(messagesRef.current);
+    stopMicMeter();
   });
 
   const handleAutoplayRetry = () => {
@@ -803,6 +961,19 @@ useEffect(() => {
 
       {/* Controls */}
       <div className="flex flex-col gap-3 items-center justify-center p-4 border-t border-zinc-700 w-full mt-6">
+        {/* Mic meter */}
+        <div style={{ width: 220, height: 10, background: '#333', borderRadius: 6 }} title="Nivel de micrófono">
+          <div
+            style={{
+              width: `${Math.min(100, Math.round(micLevel * 200))}%`,
+              height: '100%',
+              background: micLevel > 0.05 ? '#22c55e' : '#ef4444',
+              borderRadius: 6,
+              transition: 'width 80ms linear',
+            }}
+          />
+        </div>
+
         {sessionState === StreamingAvatarSessionState.INACTIVE && !showAutoplayBlockedMessage && (
           <div className="flex flex-row gap-4">
             <Button onClick={handleVoiceChatClick} disabled={isAttemptingAutoStart || !hasUserMediaPermission}>
@@ -815,7 +986,7 @@ useEffect(() => {
         )}
 
         {sessionState === StreamingAvatarSessionState.CONNECTED && !isVoiceActive && (
-          <Button onClick={handleVoiceChatClick}>Encender voz</Button>
+          <Button onClick={handleVoiceChatClick}>Reactivar micrófono</Button>
         )}
 
         {sessionState === StreamingAvatarSessionState.CONNECTED && (
