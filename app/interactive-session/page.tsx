@@ -473,16 +473,16 @@ function InteractiveSessionContent() {
           setIsAttemptingAutoStart(false);
           await trySpeak('Hola, ya te escucho. Cuando quieras, empezamos.');
 
-          if (withVoice && !voiceStartedOnceRef.current) {
-            try {
-              await startVoiceChat();
-              voiceStartedOnceRef.current = true;
-              setIsVoiceActive(true);
-              console.log('startVoiceChat OK');
-            } catch (e) {
-              console.error('startVoiceChat falló:', e);
-            }
-          }
+          if (withVoice) {
+  try {
+    await startVoiceChat();
+    setIsVoiceActive(true);
+    console.log('startVoiceChat OK');
+  } catch (e) {
+    console.error('startVoiceChat falló:', e);
+  }
+}
+
         });
 
         await startAvatar({
@@ -517,29 +517,54 @@ function InteractiveSessionContent() {
   );
 
   /** ---------- Botón “Voice Chat” ---------- */
-  const handleVoiceChatClick = useCallback(
-    async () => {
-      if (!hasUserMediaPermission) {
-        alert('Por favor, permite el acceso a la cámara y el micrófono.');
-        return;
+  const handleVoiceChatClick = useCallback(async () => {
+  if (!hasUserMediaPermission) {
+    alert('Por favor, permite el acceso a la cámara y el micrófono.');
+    return;
+  }
+
+  // 1) ¿Tenemos un stream con audio vivo?
+  const hasLiveAudio =
+    !!localUserStreamRef.current &&
+    localUserStreamRef.current.getAudioTracks().some(
+      (t) => t.enabled && t.readyState === 'live'
+    );
+
+  // 2) Si no hay audio, re-solicitar micrófono (con mejoras de captura)
+  if (!hasLiveAudio) {
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+      // Mantén tu cámara si ya existe; aquí sólo aseguramos audio
+      const existingVideoTracks =
+        localUserStreamRef.current?.getVideoTracks?.().filter((t) => t.readyState === 'live') || [];
+      localUserStreamRef.current = new MediaStream([...s.getAudioTracks(), ...existingVideoTracks]);
+      if (userCameraRef.current) {
+        userCameraRef.current.srcObject = localUserStreamRef.current;
       }
-      if (sessionState === StreamingAvatarSessionState.CONNECTED) {
-        try {
-          if (!voiceStartedOnceRef.current) {
-            await startVoiceChat();
-            voiceStartedOnceRef.current = true;
-          }
-          setIsVoiceActive(true);
-          console.log('startVoiceChat OK (sesión ya conectada)');
-        } catch (e) {
-          console.error('startVoiceChat falló:', e);
-        }
-      } else {
-        startHeyGenSession(true);
-      }
-    },
-    [hasUserMediaPermission, sessionState, startVoiceChat, startHeyGenSession]
-  );
+    } catch (e) {
+      console.error('No fue posible recuperar el micrófono:', e);
+      alert('No pude activar el micrófono. Revisa permisos en el candado del navegador.');
+      return;
+    }
+  }
+
+  // 3) Reintenta SIEMPRE levantar el canal de voz (sin depender de voiceStartedOnceRef)
+  try {
+    await startVoiceChat();
+    setIsVoiceActive(true);
+    console.log('Voice chat activo');
+  } catch (e) {
+    console.error('startVoiceChat falló:', e);
+    alert('No pude activar la voz. Intenta de nuevo.');
+  }
+}, [hasUserMediaPermission, startVoiceChat]);
+
 
   /** ---------- Permisos cámara/mic ---------- */
   useEffect(() => {
@@ -657,6 +682,37 @@ function InteractiveSessionContent() {
       if (id) clearInterval(id);
     };
   }, [sessionState, stopAndFinalizeSession]);
+useEffect(() => {
+  const onDeviceChange = async () => {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const mics = devices.filter((d) => d.kind === 'audioinput');
+      if (mics.length === 0) {
+        setIsVoiceActive(false);
+        alert('No hay micrófonos disponibles.');
+        return;
+      }
+      const hasLive =
+        !!localUserStreamRef.current &&
+        localUserStreamRef.current.getAudioTracks().some((t) => t.readyState === 'live');
+      if (!hasLive) {
+        const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const existingVideoTracks =
+          localUserStreamRef.current?.getVideoTracks?.().filter((t) => t.readyState === 'live') || [];
+        localUserStreamRef.current = new MediaStream([...s.getAudioTracks(), ...existingVideoTracks]);
+        if (userCameraRef.current) {
+          userCameraRef.current.srcObject = localUserStreamRef.current;
+        }
+        console.log('Mic reaprovisionado tras devicechange');
+      }
+    } catch (e) {
+      console.warn('devicechange error:', e);
+    }
+  };
+
+  navigator.mediaDevices?.addEventListener?.('devicechange', onDeviceChange);
+  return () => navigator.mediaDevices?.removeEventListener?.('devicechange', onDeviceChange);
+}, []);
 
   /** ---------- Cleanup ---------- */
   useUnmount(() => {
